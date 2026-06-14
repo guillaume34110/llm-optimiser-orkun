@@ -1,0 +1,7 @@
+# configs/eval.yaml
+# Done-B exit thresholds. Sentinels — recalibrate at the first real-checkpoint run.
+wm_nll_max: 5.0            # max held-out NLL/token of real ToolResults under the WM
+reward_head_mae_max: 0.25  # max mean |predict - graded| on held-out
+sample_gain_min: 1.1       # min reactive_mean / planned_mean (planning must beat reactive)
+holdout_frac: 0.2          # fraction of distinct task_ids held out
+holdout_seed: 0

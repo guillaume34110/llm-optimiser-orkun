@@ -1,0 +1,37 @@
+{
+  "checkpoint": "../Orkish/runs/sanity_smoke/ckpts/step_0000030.safetensors",
+  "config": "/tmp/smoke_model.yaml",
+  "n_loot_rows": 24,
+  "criteria": {
+    "wm_nll": {
+      "value": 8.955480575561523,
+      "threshold": 5.0,
+      "passed": false
+    },
+    "reward_head_mae": {
+      "value": 0.0011164546012878418,
+      "threshold": 0.25,
+      "passed": true
+    },
+    "sample_gain": {
+      "value": 2.0,
+      "threshold": 1.1,
+      "passed": true
+    }
+  },
+  "sample_efficiency": {
+    "reactive_mean_exec": 2.0,
+    "planned_mean_exec": 1.0,
+    "gain_ratio": 2.0
+  },
+  "ablations": {
+    "curiosity_coverage_on": 0,
+    "curiosity_coverage_off": 0,
+    "curiosity_pass": false,
+    "wm_progress_online": 0.0,
+    "wm_progress_frozen": 0.0,
+    "wm_online_pass": false
+  },
+  "done_b_core_passed": false,
+  "done_b_overall_passed": false
+}

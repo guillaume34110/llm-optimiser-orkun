@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WAAAGH · GROT-80M</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 240'><rect width='240' height='240' rx='30' fill='%230d130c'/><path d='M64,64 Q66,40 96,38 L144,38 Q176,40 178,64 L182,150 Q182,178 150,186 L90,186 Q58,178 58,150 Z' fill='%237ec02a'/><path d='M70,98 L118,88 L172,98 L166,114 L118,104 L76,114 Z' fill='%233a5915'/><path d='M80,106 L106,114 L101,128 L78,120 Z' fill='%23a6ff2e'/><path d='M160,106 L134,114 L139,128 L162,120 Z' fill='%23a6ff2e'/><path d='M92,156 Q88,128 100,124 Q106,128 104,156 Z' fill='%23e8e2c8'/><path d='M148,156 Q152,128 140,124 Q134,128 136,156 Z' fill='%23e8e2c8'/></svg>">
+<style>
+  :root{
+    --bg:#0d130c; --panel:#16210f; --panel2:#1d2b13; --ink:#d9f2c0;
+    --ork:#7ec02a; --ork2:#a6ff2e; --rust:#c2451f; --bone:#e8e2c8;
+    --metal:#3a4a2c; --shadow:rgba(0,0,0,.55);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:
+      repeating-linear-gradient(135deg, transparent 0 24px, rgba(126,192,42,.02) 24px 48px),
+      radial-gradient(120% 80% at 50% -10%, #1c2a12 0%, var(--bg) 60%) fixed;
+    color:var(--ink);font-family:"Trebuchet MS",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .mascot{width:clamp(56px,13vw,104px);height:auto;display:block;margin:0 auto 6px;
+    filter:drop-shadow(0 5px 10px rgba(0,0,0,.55)) drop-shadow(0 0 14px rgba(166,255,46,.22))}
+  .bgmascot{position:fixed;right:-6vw;bottom:-8vh;width:64vmin;height:64vmin;
+    opacity:.05;z-index:-1;pointer-events:none;transform:rotate(-6deg)}
+  .wrap{max-width:920px;margin:0 auto;padding:22px 16px 60px}
+  header{text-align:center;margin:8px 0 18px}
+  h1{
+    font-size:clamp(34px,7vw,62px);margin:0;letter-spacing:2px;font-weight:900;
+    color:var(--ork2);text-transform:uppercase;
+    text-shadow:0 3px 0 #2a3a18, 0 6px 14px var(--shadow), 0 0 22px rgba(166,255,46,.25);
+    transform:skewX(-5deg);
+  }
+  h1 .tusk{color:var(--rust)}
+  .tag{color:#9bbf6f;font-size:14px;letter-spacing:3px;text-transform:uppercase;margin-top:6px}
+  .card{
+    background:linear-gradient(180deg,var(--panel2),var(--panel));
+    border:2px solid var(--metal);border-top-color:#4d6336;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.05), 0 6px 18px var(--shadow);
+    padding:16px;margin:14px 0;
+    clip-path:polygon(0 6px,6px 0,calc(100% - 10px) 0,100% 8px,100% calc(100% - 6px),calc(100% - 6px) 100%,10px 100%,0 calc(100% - 8px));
+  }
+  .card h2{margin:0 0 10px;font-size:13px;letter-spacing:2px;text-transform:uppercase;color:var(--ork)}
+  .sub{color:#9bbf6f;font-size:13px;line-height:1.5}
+  .tools{display:flex;flex-wrap:wrap;gap:8px;margin-top:4px}
+  .tool{
+    background:#0f1709;border:1px solid var(--metal);color:var(--bone);
+    font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;
+    padding:5px 9px;border-radius:3px;position:relative;transition:.15s;
+  }
+  .tool b{color:var(--ork2)}
+  .tool.untrained{opacity:.4;border-style:dashed}
+  .tool.untrained b{color:#8fa86a}
+  .tool.fired{border-color:var(--ork2);box-shadow:0 0 0 1px var(--ork2),0 0 16px rgba(166,255,46,.45);
+    background:#1a2a0c;animation:zap .5s;opacity:1}
+  .legend{font-size:11px;color:#7d975a;margin-top:10px;line-height:1.5}
+  .legend b{color:var(--ork2)} .legend .dash{color:#8fa86a}
+  @keyframes zap{0%{transform:scale(1)}30%{transform:scale(1.12) rotate(-1deg)}100%{transform:scale(1)}}
+  .scen{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+  .scen button{
+    cursor:pointer;background:#1a2810;color:var(--ink);border:1px solid var(--metal);
+    padding:7px 11px;font-size:13px;border-radius:4px;transition:.12s}
+  .scen button:hover{border-color:var(--ork);color:var(--ork2);transform:translateY(-1px)}
+  .inrow{display:flex;gap:8px;margin-top:6px}
+  textarea{
+    flex:1;min-height:54px;resize:vertical;background:#0c1207;color:var(--ink);
+    border:2px solid var(--metal);border-radius:4px;padding:10px 12px;font-size:15px;
+    font-family:inherit}
+  textarea:focus{outline:none;border-color:var(--ork)}
+  .send{
+    cursor:pointer;font-weight:900;letter-spacing:1px;text-transform:uppercase;
+    background:linear-gradient(180deg,var(--ork),#5d9320);color:#0c1207;border:0;
+    padding:0 20px;border-radius:4px;font-size:15px;min-width:120px;
+    box-shadow:0 4px 0 #3c5e16, 0 6px 12px var(--shadow);transition:.1s}
+  .send:active{transform:translateY(3px);box-shadow:0 1px 0 #3c5e16}
+  .send:disabled{opacity:.55;cursor:wait}
+  .out{margin-top:6px}
+  .think{color:#7fa353;font-style:italic;font-size:14px;margin:2px 0 6px}
+  .think .muted{color:#5e7740;font-style:normal}
+  .saidtabs{display:flex;gap:6px;margin-bottom:-1px}
+  .stab{cursor:pointer;background:#0c1207;color:#8fa86a;border:1px solid var(--metal);
+    border-bottom:0;font-size:11px;padding:4px 10px;border-radius:4px 4px 0 0;font-family:inherit}
+  .stab.on{background:#16210f;color:var(--ork2);border-color:var(--metal)}
+  .said{
+    font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;white-space:pre-wrap;
+    word-break:break-word;background:#0c1207;border:1px dashed var(--metal);
+    padding:10px;border-radius:0 4px 4px 4px;color:#cfe6ac;margin:0;
+    max-height:340px;overflow:auto}
+  .said.toks{white-space:normal;line-height:2.1}
+  .said.toks .tok{display:inline-block;background:#16210f;border:1px solid var(--metal);
+    border-radius:3px;padding:1px 5px;margin:2px;color:#cfe6ac;white-space:pre}
+  .said.toks .tok i{color:#5e7740;font-style:normal}
+  .said.toks .tok:last-child{border-color:var(--rust);color:#ff8a5c}
+  .fire{
+    margin:12px 0;border:2px solid var(--ork);border-radius:5px;overflow:hidden;
+    box-shadow:0 0 18px rgba(126,192,42,.18)}
+  .fire.bad{border-color:var(--rust);box-shadow:0 0 18px rgba(194,69,31,.18)}
+  .fire .hd{
+    display:flex;align-items:center;gap:8px;background:#1a2a0c;padding:8px 12px;
+    font-family:ui-monospace,monospace;font-size:13px;border-bottom:1px solid var(--metal)}
+  .fire.bad .hd{background:#2a1408}
+  .bolt{font-size:16px}
+  .fire .nm{color:var(--ork2);font-weight:700}
+  .fire.bad .nm{color:#ff8a5c}
+  .fire .args{color:#8fb46a;margin-left:auto;font-size:12px;opacity:.85;max-width:50%;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fire pre{margin:0;padding:12px;background:#0a0f06;color:var(--bone);font-size:13px;
+    white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,monospace}
+  .fs{margin-top:14px;border:1px solid var(--metal);border-radius:5px;overflow:hidden}
+  .fs .fshd{background:#11190a;padding:7px 12px;font-size:12px;letter-spacing:1px;
+    text-transform:uppercase;color:var(--ork);border-bottom:1px solid var(--metal)}
+  .fs .empty{padding:10px 12px;color:#7d975a;font-size:13px;font-style:italic}
+  .file{border-top:1px solid #1d2b13}
+  .file:first-child{border-top:0}
+  .file .fhd{display:flex;align-items:center;gap:8px;padding:7px 12px;
+    font-family:ui-monospace,monospace;font-size:12px;background:#0c1207;cursor:pointer}
+  .file .fhd:hover{background:#101a09}
+  .file .pn{color:var(--bone)}
+  .file .sz{color:#7d975a;margin-left:auto}
+  .badge{font-size:10px;font-weight:700;padding:2px 6px;border-radius:3px;letter-spacing:.5px}
+  .badge.new{background:#1a3a0c;color:var(--ork2);border:1px solid var(--ork2)}
+  .badge.chg{background:#3a2a08;color:#ffb454;border:1px solid #ffb454}
+  .file pre{margin:0;padding:10px 12px;background:#0a0f06;color:#cfe6ac;font-size:12px;
+    white-space:pre-wrap;word-break:break-word;font-family:ui-monospace,monospace;
+    border-top:1px solid #16210f;max-height:240px;overflow:auto}
+  .verdict{text-align:center;font-weight:900;letter-spacing:2px;text-transform:uppercase;
+    margin-top:10px;font-size:18px}
+  .win{color:var(--ork2);text-shadow:0 0 14px rgba(166,255,46,.4)}
+  .fail{color:var(--rust)}
+  .note{font-size:12px;color:#7d975a;text-align:center;margin-top:26px;line-height:1.6}
+  a{color:var(--ork)}
+  .spin{display:inline-block;animation:wob 1s infinite}
+  @keyframes wob{0%,100%{transform:rotate(-8deg)}50%{transform:rotate(8deg)}}
+</style>
+</head>
+<body>
+
+<!-- grot mascot, drawn once as a reusable vector symbol -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="grot" viewBox="0 0 240 240">
+    <path d="M58,96 L24,66 L30,128 L66,128 Z" fill="#5d9320" stroke="#3a5915" stroke-width="3"/>
+    <path d="M182,96 L216,66 L210,128 L174,128 Z" fill="#5d9320" stroke="#3a5915" stroke-width="3"/>
+    <path d="M64,64 Q66,40 96,38 L144,38 Q176,40 178,64 L182,148 Q182,176 150,184 L90,184 Q58,176 58,148 Z"
+          fill="#7ec02a" stroke="#3a5915" stroke-width="4"/>
+    <path d="M64,64 Q66,40 96,38 L144,38 Q176,40 178,64 L176,92 L64,92 Z" fill="#8fd02f" opacity=".5"/>
+    <path d="M70,96 L118,86 L172,96 L166,112 L118,102 L76,112 Z" fill="#3a5915"/>
+    <path d="M80,104 L106,112 L101,126 L78,118 Z" fill="#a6ff2e"/>
+    <path d="M160,104 L134,112 L139,126 L162,118 Z" fill="#a6ff2e"/>
+    <circle cx="92" cy="116" r="4.5" fill="#0c1207"/>
+    <circle cx="148" cy="116" r="4.5" fill="#0c1207"/>
+    <path d="M150,90 L166,128" stroke="#c2451f" stroke-width="4" fill="none" stroke-linecap="round"/>
+    <path d="M114,122 L126,122 L120,138 Z" fill="#3a5915"/>
+    <path d="M74,150 L166,150 L170,168 Q150,188 120,190 Q90,188 70,168 Z" fill="#5d9320" stroke="#3a5915" stroke-width="4"/>
+    <path d="M90,154 Q86,128 98,124 Q104,128 102,154 Z" fill="#e8e2c8" stroke="#3a5915" stroke-width="2.5"/>
+    <path d="M150,154 Q154,128 142,124 Q136,128 138,154 Z" fill="#e8e2c8" stroke="#3a5915" stroke-width="2.5"/>
+    <circle cx="120" cy="55" r="6" fill="#3a4a2c" stroke="#2a3a18" stroke-width="2"/>
+  </symbol>
+</svg>
+<svg class="bgmascot" viewBox="0 0 240 240"><use href="#grot"/></svg>
+
+<div class="wrap">
+  <header>
+    <svg class="mascot" viewBox="0 0 240 240"><use href="#grot"/></svg>
+    <h1>WAAAGH<span class="tusk">·</span>GROT-80M</h1>
+    <div class="tag">tool-callin' orko-engine — 80M params, trained from scratch</div>
+  </header>
+
+  <div class="card">
+    <h2>Wot grot duz</h2>
+    <div class="sub">Grot only knows one trick: <b>call tools</b>. Give it a job, it picks a
+      tool and fires it. Nuffin' iz faked — your text goes through the real 80M net, grot's
+      raw output iz shown verbatim, an' every call runs in a <b>live sandbox you can inspect
+      below</b> (files before/after on disk). Proof it's really grot: it often gets da numberz
+      <i>wrong</i> (50+98→138) — a fake would compute right. 80M, still trainin'. Dat's da WAAAGH.</div>
+  </div>
+
+  <div class="card">
+    <h2>Grot's toolz</h2>
+    <div class="tools" id="tools"></div>
+    <div class="legend">
+      <b>■ solid</b> = grot woz trained to call it (read_file, write_file, py_run).
+      <span class="dash">▦ dashed</span> = tool exists + runs for real, but grot woz never taught it —
+      in practice grot smashes everyfing wiv <b>py_run</b>. A chip lights up ⚡ only when grot really fires it.
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Give grot a job</h2>
+    <div class="scen" id="scen"></div>
+    <div class="inrow">
+      <textarea id="msg" placeholder="e.g. Print exactly ANSWER=42 using python."></textarea>
+      <button class="send" id="send">WAAAGH!</button>
+    </div>
+    <div class="out" id="out"></div>
+  </div>
+
+  <div class="note">
+    Custom nGPT architecture · served live from a tiny Python backend (no fakes).<br>
+    Built by <a href="#">@guillaume34110</a> · part of the Orkun / Orkish research project.
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let SCEN = [];
+
+async function meta(){
+  const r = await fetch('/api/meta'); const d = await r.json();
+  $('#tools').innerHTML = d.tools.map(t =>
+    `<span class="tool ${t.trained?'':'untrained'}" data-name="${t.name}" title="${((t.desc||'')+(t.trained?'':' — grot was never trained to call this')).replace(/"/g,'&quot;')}"><b>${t.name}</b></span>`
+  ).join('');
+  SCEN = d.scenarios;
+  $('#scen').innerHTML = SCEN.map((s,i)=>`<button data-i="${i}">${s.label}</button>`).join('');
+  $('#scen').querySelectorAll('button').forEach(b=>b.onclick=()=>{
+    const s = SCEN[+b.dataset.i]; $('#msg').value = s.prompt; run(s.seed);
+  });
+}
+
+function esc(x){return (x??'').toString().replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+
+async function run(seed){
+  const prompt = $('#msg').value.trim(); if(!prompt) return;
+  const btn = $('#send'); btn.disabled = true;
+  $('#out').innerHTML = `<div class="think"><span class="spin">⚙</span> grot grumbles...</div>`;
+  document.querySelectorAll('.tool.fired').forEach(t=>t.classList.remove('fired'));
+  try{
+    const r = await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({prompt, seed: seed||{}, samples:6, temperature:0.45})});
+    const d = await r.json();
+    if(d.error){ $('#out').innerHTML = `<div class="verdict fail">krump! ${esc(d.error)}</div>`; return; }
+    render(d);
+  }catch(e){ $('#out').innerHTML = `<div class="verdict fail">krump! ${esc(e.message)}</div>`; }
+  finally{ btn.disabled = false; }
+}
+
+let LAST = null;
+function setSaid(mode){
+  if(!LAST) return;
+  const pre = $('#said'); if(!pre) return;
+  if(mode==='raw'){
+    const toks = LAST.tokens || [];
+    pre.classList.add('toks');
+    pre.innerHTML = toks.length
+      ? toks.map(t=>{
+          const vis = esc(t).replace(/\n/g,'<i>↵</i>').replace(/ /g,'<i>·</i>');
+          return `<span class="tok">${vis||'∅'}</span>`;
+        }).join('')
+      : '…silence…';
+  }else{
+    pre.classList.remove('toks');
+    pre.textContent = LAST.assistant_text || '…silence…';
+  }
+  document.querySelectorAll('.stab').forEach(b=>b.classList.toggle('on', b.dataset.m===mode));
+}
+
+function render(d){
+  LAST = d;
+  let h = '';
+  const tries = d.attempts>1 ? ` (after ${d.attempts} tries)` : '';
+  const meta = `${d.n_tokens} tokens · ${esc(d.stop_reason)}${tries}`;
+  h += `<div class="think">grot's full output <span class="muted">— ${meta}</span></div>`;
+  h += `<div class="saidtabs">
+    <button class="stab on" data-m="clean" onclick="setSaid('clean')">clean</button>
+    <button class="stab" data-m="raw" onclick="setSaid('raw')">raw (tokens)</button>
+  </div>`;
+  h += `<pre class="said" id="said">${esc(d.assistant_text)||'…silence…'}</pre>`;
+  if(d.calls && d.calls.length){
+    for(const c of d.calls){
+      const args = esc(JSON.stringify(c.args));
+      h += `<div class="fire ${c.ok?'':'bad'}">
+        <div class="hd"><span class="bolt">${c.ok?'⚡':'💥'}</span>
+          <span class="nm">${esc(c.name)}</span> fired
+          <span class="args">${args}</span></div>
+        <pre>${esc(c.output)||'<no output>'}</pre></div>`;
+      const chip = document.querySelector(`.tool[data-name="${c.name}"]`);
+      if(chip && c.ok) setTimeout(()=>chip.classList.add('fired'), 60);
+    }
+    const allok = d.calls.every(c=>c.ok);
+    h += `<div class="verdict ${allok?'win':'fail'}">${allok?'✅ WAAAGH!':'⚠ grot fumbled a bit'}</div>`;
+  }else{
+    h += `<div class="verdict fail">no valid tool call — grot fumbled</div>`;
+  }
+  h += renderFs(d.fs_before||[], d.fs_after||[]);
+  $('#out').innerHTML = h;
+}
+
+function renderFs(before, after){
+  const beMap = {}; before.forEach(f=>beMap[f.path]=f.content);
+  // "before" = what grot started with (what read_file / list_dir actually see).
+  // "after"  = the real tempdir once the tools ran (write_file's file shows up here).
+  const beList = before.length
+    ? before.map(f=>fileRow(f, '')).join('')
+    : `<div class="empty">empty sandbox — grot started with no files</div>`;
+  let h = `<div class="fs"><div class="fshd">📁 sandbox · before (what grot could read)</div>${beList}</div>`;
+  const aList = after.length
+    ? after.map(f=>{
+        let tag = '';
+        if(!(f.path in beMap)) tag = '<span class="badge new">new</span>';
+        else if(beMap[f.path]!==f.content) tag = '<span class="badge chg">changed</span>';
+        return fileRow(f, tag);
+      }).join('')
+    : `<div class="empty">empty sandbox</div>`;
+  h += `<div class="fs"><div class="fshd">📁 sandbox · after (real tempdir on disk)</div>${aList}</div>`;
+  return h;
+}
+
+function fileRow(f, tag){
+  return `<div class="file">
+    <div class="fhd" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">
+      <span class="pn">${esc(f.path)}</span>${tag}<span class="sz">${f.size} b</span></div>
+    <pre>${esc(f.content)||'<empty file>'}</pre></div>`;
+}
+
+$('#send').onclick = ()=>run({});
+$('#msg').addEventListener('keydown',e=>{ if(e.key==='Enter'&&(e.metaKey||e.ctrlKey)) run({}); });
+meta();
+</script>
+</body>
+</html>

@@ -1,0 +1,122 @@
+{
+  "meta": {
+    "checkpoint": "kaggle/_out_v4_burdok/sft_procedural/ckpts/best.safetensors",
+    "config": "configs/orkun_sft_procedural_v4.yaml",
+    "temperature": 0.45,
+    "samples": 4,
+    "timestamp": "2026-06-14 14:58:49"
+  },
+  "families": [
+    {
+      "family": "write_file",
+      "greedy_pass": false,
+      "greedy_graded": 0.5,
+      "greedy_calls": 1,
+      "sampled_pass": 0,
+      "sampled_n": 4,
+      "greedy_text": "CALL: write_file(path='out_7890.txt', content='mek 494772\\n')"
+    },
+    {
+      "family": "fix_token",
+      "greedy_pass": false,
+      "greedy_graded": 0.0,
+      "greedy_calls": 1,
+      "sampled_pass": 0,
+      "sampled_n": 4,
+      "greedy_text": "CALL: py_run(code=\"p='notes_763.txt'\\ns=open(p).read().replace('TODO','DONE')\\nopen(p,'w').write(s)\\nprint('ok')\")"
+    },
+    {
+      "family": "compute",
+      "greedy_pass": false,
+      "greedy_graded": 0.5,
+      "greedy_calls": 1,
+      "sampled_pass": 0,
+      "sampled_n": 4,
+      "greedy_text": "CALL: py_run(code='print(38 + 47)')"
+    },
+    {
+      "family": "json_transform",
+      "greedy_pass": false,
+      "greedy_graded": 0.5,
+      "greedy_calls": 1,
+      "sampled_pass": 0,
+      "sampled_n": 4,
+      "greedy_text": "CALL: py_run(code=\"import json\\np='cfg_7808.json'\\nd=json.load(open(p))\\nd['kind']='mek35'\\njson.dump(d, open(p,'w'))\\nprint('ok')\")"
+    },
+    {
+      "family": "arith",
+      "greedy_pass": false,
+      "greedy_graded": 0.5,
+      "greedy_calls": 1,
+      "sampled_pass": 0,
+      "sampled_n": 4,
+      "greedy_text": "CALL: py_run(code=\"print(f'ANSWER={47 + 36}')\")"
+    },
+    {
+      "family": "sequence",
+      "greedy_pass": false,
+      "greedy_graded": 0.5,
+      "greedy_calls": 1,
+      "sampled_pass": 0,
+      "sampled_n": 4,
+      "greedy_text": "CALL: py_run(code=\"t=[6, 12, 15]\\nd=t[1]-t[0]\\nnxt=t[-1]+d\\nprint(f'ANSWER={nxt}')\")"
+    },
+    {
+      "family": "bool_sat",
+      "greedy_pass": false,
+      "greedy_graded": 0.0,
+      "greedy_calls": 0,
+      "sampled_pass": 0,
+      "sampled_n": 4,
+      "greedy_text": "CALL: py_run(code=\"f='(x0 or not x1) and (x1)'\\nidx=set();i=0\\nwhile i<len(f):\\n    if f[i]=='x' and i+1<len(f) and f[i+1].isdigit():\\n        j=i+1\\n        while j<len(f) and f[j].isdigit(): j+=1\\n "
+    },
+    {
+      "family": "pipeline",
+      "greedy_pass": false,
+      "greedy_graded": 0.75,
+      "greedy_calls": 2,
+      "sampled_pass": 2,
+      "sampled_n": 4,
+      "greedy_text": "CALL: read_file(path='input.txt')\nCALL: py_run(code=\"n=int(open('input.txt').read())\\nopen('result.txt','w').write(str(n+47))\\nprint('ok')\")"
+    },
+    {
+      "family": "echo",
+      "greedy_pass": false,
+      "greedy_graded": 0.5,
+      "greedy_calls": 1,
+      "sampled_pass": 0,
+      "sampled_n": 4,
+      "greedy_text": "CALL: py_run(code=\"print('ANSWER=9357')\")"
+    }
+  ],
+  "induction": [
+    {
+      "payload_len": 2,
+      "trials": 8,
+      "copy_acc": 0.812,
+      "prefix_len": 1.38,
+      "exact_rate": 0.75
+    },
+    {
+      "payload_len": 4,
+      "trials": 8,
+      "copy_acc": 0.604,
+      "prefix_len": 1.0,
+      "exact_rate": 0.25
+    },
+    {
+      "payload_len": 8,
+      "trials": 8,
+      "copy_acc": 0.576,
+      "prefix_len": 1.25,
+      "exact_rate": 0.0
+    },
+    {
+      "payload_len": 12,
+      "trials": 8,
+      "copy_acc": 0.541,
+      "prefix_len": 1.0,
+      "exact_rate": 0.0
+    }
+  ]
+}

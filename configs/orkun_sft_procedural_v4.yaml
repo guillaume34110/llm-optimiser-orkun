@@ -1,0 +1,86 @@
+# Orkun SFT procédural V4 — réchauffe le backbone WAAAGH 1.1 sur un corpus procédural
+# vérifié (oracles GoalFamily exécutés dans la vraie sandbox), pour franchir le mur
+# format cold-start avant le self-play RLVR. Corpus = même distribution que le self-play.
+#
+# V4 vs V3 (= le run lr 5e-5 / 3000 steps unpacked) : 2 LEVIERS = DATA COPY-BOOST + PACKING.
+#   - DATA : corpus régénéré 27602 traces DISTINCTES, copy-boost échantillonné
+#     (echo x4, write_file/json_transform x2) → echo 30% / familles copy-lourdes ~60%.
+#     Boost = PLUS de traces distinctes (pas de duplication : payloads echo uniques par
+#     design ; dupliquer ferait mémoriser au lieu de copier). Concentre le gradient copie.
+#   - PACKING : npz train repacké par orkun/scripts/pack_proc_sft.py : FFD bin-pack 3.53
+#     traces / row de 768 (vs 1/row paddé). frac_supervised 0.13 -> 0.378 (~2.9x tokens
+#     supervisés / step à compute égal). Les 6/12 couches full-attention voient les traces
+#     voisines de la row = distracteurs (robustesse retrieval) ; chaque trace garde son
+#     <|system|>…<|eos|> comme séparateur de document (backbone continued-pretrain sur
+#     séquences packées, sait déjà reset aux frontières). Loss masquée trace-par-trace.
+#   - VAL gardé 1-trace/row (NON packé) = val_loss apples-to-apples comparable à V3.
+#   - total_steps 2000 : 7431 rows / eff-batch 32 = 232 steps/row-epoch -> 8.6 row-epochs.
+#     supervisé/step x2.9 + 2000 steps = ~1.9x le total tokens-copie supervisés de V3
+#     (3000 steps unpacked) à ~66% du wall. Pas d'overfit : nombres held-out aléatoires
+#     (copie non mémorisable) ; best.safetensors capte le min val si la structure sur-apprend.
+#   - lr 5e-5 inchangé (AdamW normalise la magnitude ; +densité = gradient moins
+#     bruité, pas plus gros). init RAW step_1100 (idem V3, comparaison propre).
+name: orkun_sft_procedural
+
+model:
+  vocab_size: 8192
+  dim: 832
+  n_layers: 12
+  n_heads: 13
+  n_kv_heads: 1
+  head_dim: 64
+  mlp_hidden: 2496
+  max_seq_len: 2048
+  rope_base: 100000.0
+  logit_softcap: 15.0
+  tie_embeddings: false
+  stomach_tokens: 32
+  attn_backend: sdpa           # flex unfused sur T4 sm_75 = pathologique
+  # Organes WAAAGH 1.1 — obligatoires pour charger un ckpt v11 (sinon unexpected keys).
+  # Avec un ckpt 1.0: clés absentes → gates restent à zéro = forward 1.0 identique.
+  dyn_alpha: true
+  value_residual: true
+  stomach_write: true
+  stomach_segments: 2          # seq 768 → 384+384, une écriture stomach/seq
+
+data:
+  train_path: ./orkun/data/sft_proc/v4/sft_proc_train.npz
+  val_path: ./orkun/data/sft_proc/v4/sft_proc_val.npz
+
+train:
+  precision: fp32              # MPS bf16 autocast -> NaN grads (nGPT l2norm+u*u)
+  init_from: ../Orkish/out_final/run/ckpts/best.safetensors
+  total_steps: 2000            # V4 packé: 7431 rows @ eff-batch 32 = 232 steps/row-epoch
+                               # -> 8.6 row-epochs (~4.8h T4 fp32). frac_sup x2.9 + 2000 steps
+                               # = ~1.9x les tokens-copie supervisés de V3 (3000 unpacked), 66% wall.
+  # CONTEXTE V3 (run lr 5e-5/3000 unpacked) : val 1.4515 @1620,
+  # a battu le best V3-précédent (1.543) à ~step 1100, encore en descente. Le fix lr+steps
+  # marche SUR LE LOSS. L'inconnue restante = émergence copie prompt→call (mesurable qu'au
+  # diag_gen post-pull, pas dans le loss). V4 attaque le levier DATA : packing multi-trace
+  # (frac_supervised 0.13->0.42) = ~3.2x gradient supervisé/step pour forcer l'induction head.
+  micro_batch: 4
+  grad_accum: 8                # effective 32 seqs x 768 (packé ~3.22 traces/row, 96% rempli)
+  clip_grad_norm: 1.0
+  boss:
+    every: 4
+  seed: 42
+
+optim:
+  adamw:
+    lr: 0.00005               # 5e-5 V4 (1e-5→plateau 2.855 ; 3e-5→1.543 ; encore LR-limité.
+                              #         nGPT hypersphère + fp32 + clip 1.0 = robuste au haut LR)
+    betas: [0.9, 0.95]
+    weight_decay: 0.0
+  schedule:
+    type: wsd
+    warmup_frac: 0.1
+    decay_frac: 0.2
+    min_lr_ratio: 0.1
+
+logging:
+  every: 5
+  val_every: 20
+  health_every: 50
+  ckpt_every: 120
+  out_dir: ./runs/sft_procedural
+  keep_last: 3

@@ -1,0 +1,40 @@
+# Orkun Phase A — lean causal-curiosity loop hyperparameters.
+# Consumed by the experiment runbook (Task 14); every key maps to a kunnin_cycle
+# or component argument.
+
+substrate:
+  orkish_repo: "../Orkish"
+  tokenizer: "data/tokenizer/orkish-bpe-8k.json"   # relative to orkish_repo
+  tool_registry: "data/tool_registry.json"          # relative to orkish_repo
+
+policy:
+  temperature: 0.45   # 0.8 = token salad sur le 80M (diag V2: 0/8 sampled); 0.4-0.5 = format fiable
+  top_p: 0.95
+  max_new: 256
+  samples: 8          # rejection-sampling attempts per goal
+
+goals:
+  default_difficulty: 1
+  n_goals_per_cycle: 16
+
+curriculum:
+  mode: "lp"          # "lp" | "random" (ablation arm)
+  epsilon: 0.2
+  k: 4                # families picked per cycle
+
+learning_progress:
+  window: 20
+
+causal:
+  enabled: true       # run counterfactual ablation on verified trajectories
+
+train:
+  mode: "cf"          # "cf" | "vanilla" (ablation arm)
+  boost: 4            # necessity → repetition multiplier in cf mode
+  seq_len: 2048
+  min_rows_for_update: 256
+
+loop:
+  cycles: 200
+  seed: 0
+  store_path: "data/orkun/loot.jsonl"

@@ -1,0 +1,54 @@
+# Orkun SFT warmup — réchauffe le pretrain 80M Orkish sur les traces wire curées
+# pour franchir le mur format cold-start avant le self-play RLVR.
+# Copie de Orkish/configs/grot_sft.yaml, chemins ABSOLUS pour que torch_impl.train.sft
+# (qui résout tout via ROOT=repo Orkish) écrive côté ORKUN et lise l'ema Orkish en read-only.
+# pathlib: ROOT / "/abs" -> "/abs" (l'opérande absolu droit gagne).
+name: orkun_sft_warmup
+
+model:
+  vocab_size: 8192
+  dim: 832
+  n_layers: 12
+  n_heads: 13
+  n_kv_heads: 1
+  head_dim: 64
+  mlp_hidden: 2496
+  max_seq_len: 2048
+  rope_base: 100000.0
+  logit_softcap: 15.0
+  tie_embeddings: false
+  stomach_tokens: 32
+
+data:
+  train_path: ./kaggle/_sft/sft_train.npz
+  val_path: ./kaggle/_sft/sft_val.npz
+
+train:
+  precision: fp32              # MPS bf16 autocast -> NaN grads (nGPT l2norm+u*u)
+  init_from: ../Orkish/out_final/run/ckpts/ema.safetensors
+  total_steps: 180             # ~3.5 epochs sur 1625 traces @ eff-batch 32
+  micro_batch: 4
+  grad_accum: 8                # effective 32 seqs x 1408
+  clip_grad_norm: 1.0
+  boss:
+    every: 4
+  seed: 42
+
+optim:
+  adamw:
+    lr: 0.00001
+    betas: [0.9, 0.95]
+    weight_decay: 0.0
+  schedule:
+    type: wsd
+    warmup_frac: 0.1
+    decay_frac: 0.2
+    min_lr_ratio: 0.1
+
+logging:
+  every: 1
+  val_every: 20
+  health_every: 50
+  ckpt_every: 60
+  out_dir: ./runs/sft_warmup
+  keep_last: 3

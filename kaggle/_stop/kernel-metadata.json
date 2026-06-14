@@ -1,0 +1,14 @@
+{
+  "id": "maximemoya/orkun-self-play-80m",
+  "title": "Orkun Self-Play 80M",
+  "code_file": "stop.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": "true",
+  "enable_gpu": "false",
+  "enable_tpu": "false",
+  "enable_internet": "false",
+  "dataset_sources": [],
+  "competition_sources": [],
+  "kernel_sources": []
+}

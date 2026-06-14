@@ -1,0 +1,59 @@
+# Orkun SFT v3 caveman — même substrat que la v2 procédurale, mais corpus MÉLANGÉ:
+#   - procédural restylé (traces_caveman.jsonl): format tool-call intact (CALL/ToolResult
+#     byte-for-byte), persona caveman portée par le system + rapport final reframé.
+#   - conversationnel caveman (caveman.jsonl): la dimension prose manquante (greet, explain,
+#     refuse, opinion, narrate, reason, tool-ack) en registre orc-pidgin EN + FR léger.
+# Persona CONDITIONNELLE: ~85% des records portent le system persona + registre caveman,
+# ~15% control (system plain / pas de system) en anglais plain -> le modèle apprend la
+# correspondance persona->registre et reste capable de parler plain. ZÉRO changement Orkish
+# (persona via system, pas de token <|persona|>). Init depuis l'ema pretrain, indépendant
+# de la v2 (aucune interférence). NE PAS lancer en 12h sans smoke + diag_gen d'abord.
+name: orkun_sft_caveman
+
+model:
+  vocab_size: 8192
+  dim: 832
+  n_layers: 12
+  n_heads: 13
+  n_kv_heads: 1
+  head_dim: 64
+  mlp_hidden: 2496
+  max_seq_len: 2048
+  rope_base: 100000.0
+  logit_softcap: 15.0
+  tie_embeddings: false
+  stomach_tokens: 32
+
+data:
+  train_path: ./orkun/data/sft_proc/sft_caveman_train.npz
+  val_path: ./orkun/data/sft_proc/sft_caveman_val.npz
+
+train:
+  precision: fp32              # MPS/T4 bf16 autocast -> NaN grads (nGPT l2norm+u*u)
+  init_from: ../Orkish/out_final/run/ckpts/ema.safetensors
+  total_steps: 1600            # ~6 epochs sur 8550 records @ eff-batch 32 (~8.5h T4 fp32, <12h)
+  micro_batch: 4
+  grad_accum: 8                # effective 32 seqs x 2048
+  clip_grad_norm: 1.0
+  boss:
+    every: 4
+  seed: 42
+
+optim:
+  adamw:
+    lr: 0.00003               # 3e-5, aligné v2
+    betas: [0.9, 0.95]
+    weight_decay: 0.0
+  schedule:
+    type: wsd
+    warmup_frac: 0.1
+    decay_frac: 0.2
+    min_lr_ratio: 0.1
+
+logging:
+  every: 5
+  val_every: 20
+  health_every: 50
+  ckpt_every: 120
+  out_dir: ./runs/sft_caveman
+  keep_last: 3
