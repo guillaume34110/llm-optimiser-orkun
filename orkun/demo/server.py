@@ -10,12 +10,12 @@ Pipeline per request (all reused, tested primitives — nothing is faked):
     user text -> wire prompt -> WaaaghNet greedy decode -> parse_calls
               -> execute each call in a fresh Sandbox -> real tool output back to the page
 
-Run:
-    python -m orkun.demo.server \
-        --checkpoint kaggle/_out_v4_burdok/sft_procedural/ckpts/best.safetensors \
-        --config configs/orkun_sft_procedural_v4.yaml \
-        --orkish-repo ../Orkish
+Run (turnkey — no flags needed once weights are at orkun/demo/assets/grot-80m.safetensors
+and the Orkish repo sits next to this one or at /opt/Orkish):
+    python -m orkun.demo.server
     # then open http://127.0.0.1:8000
+
+Tool execution is hardened for public exposure — see orkun/demo/safe_exec.py.
 """
 from __future__ import annotations
 
@@ -26,6 +26,47 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
+_REPO = _HERE.parent.parent          # orkun repo root (…/orkun/demo/ -> repo)
+
+
+def _resolve_checkpoint(cli: str | None) -> str:
+    """Find the model weights without flags. Order: --checkpoint, $GROT_CKPT,
+    bundled assets/, the kaggle training output."""
+    import os
+    cands = [
+        cli, os.environ.get("GROT_CKPT"),
+        str(_HERE / "assets" / "grot-80m.safetensors"),
+        str(_REPO / "kaggle/_out_v4_burdok/sft_procedural/ckpts/best.safetensors"),
+    ]
+    for c in cands:
+        if c and Path(c).is_file():
+            return c
+    raise SystemExit(
+        "[grot] no checkpoint found. Put weights at orkun/demo/assets/grot-80m.safetensors, "
+        "set $GROT_CKPT, or pass --checkpoint.")
+
+
+def _resolve_config(cli: str | None) -> str:
+    import os
+    cands = [cli, os.environ.get("GROT_CONFIG"),
+             str(_REPO / "configs/orkun_sft_procedural_v4.yaml")]
+    for c in cands:
+        if c and Path(c).is_file():
+            return c
+    raise SystemExit("[grot] config not found; pass --config.")
+
+
+def _resolve_orkish(cli: str | None) -> str:
+    """Locate the Orkish repo (tokenizer + tool_registry + model arch)."""
+    import os
+    cands = [cli, os.environ.get("ORKISH_REPO"),
+             str(_REPO.parent / "Orkish"), "/opt/Orkish"]
+    for c in cands:
+        if c and (Path(c) / "data" / "tool_registry.json").is_file():
+            return c
+    raise SystemExit(
+        "[grot] Orkish repo not found. Clone llm-waaagh-Orkish next to this repo, "
+        "set $ORKISH_REPO, or pass --orkish-repo.")
 
 # One hand-made prompt grot nails cleanly, then real in-distribution tasks drawn from the
 # GoalFamilies the model was trained on. Paraphrases break it (it is brittle to exact
@@ -102,8 +143,9 @@ class Engine:
         read_file reads files that are actually present, write_file makes a file you can see,
         list_dir reflects the true directory.
         """
-        from infer.executors import Sandbox, execute
+        from infer.executors import Sandbox
         from infer.monkey_wire import parse_calls
+        from orkun.demo.safe_exec import safe_execute as execute
         from orkun.policy.sampler import sample as sample_one
 
         wire = f"<|bos|><|user|>{prompt}<|assistant|>"
@@ -236,18 +278,22 @@ def make_handler(engine: Engine):
 
 
 def main():
+    import os
     ap = argparse.ArgumentParser(description="WAAAGH GROT-80M tool-call demo server")
-    ap.add_argument("--checkpoint",
-                    default="kaggle/_out_v4_burdok/sft_procedural/ckpts/best.safetensors")
-    ap.add_argument("--config", default="configs/orkun_sft_procedural_v4.yaml")
-    ap.add_argument("--orkish-repo", default="../Orkish")
+    ap.add_argument("--checkpoint", default=None)
+    ap.add_argument("--config", default=None)
+    ap.add_argument("--orkish-repo", default=None)
     ap.add_argument("--device", default="cpu")
-    ap.add_argument("--host", default="127.0.0.1")
-    ap.add_argument("--port", type=int, default=8000)
+    ap.add_argument("--host", default=os.environ.get("GROT_HOST", "127.0.0.1"))
+    ap.add_argument("--port", type=int, default=int(os.environ.get("GROT_PORT", "8000")))
     args = ap.parse_args()
 
-    print("[grot] loading model ...", flush=True)
-    engine = Engine(args.checkpoint, args.config, args.orkish_repo, args.device)
+    checkpoint = _resolve_checkpoint(args.checkpoint)
+    config = _resolve_config(args.config)
+    orkish_repo = _resolve_orkish(args.orkish_repo)
+    print(f"[grot] ckpt={checkpoint}\n[grot] orkish={orkish_repo}\n[grot] loading model ...",
+          flush=True)
+    engine = Engine(checkpoint, config, orkish_repo, args.device)
     httpd = ThreadingHTTPServer((args.host, args.port), make_handler(engine))
     print(f"[grot] WAAAGH ready -> http://{args.host}:{args.port}", flush=True)
     try:

@@ -1,0 +1,15 @@
+# Keep the build context small + clean. Weights come via GROT_WEIGHTS_URL, not git.
+.git
+__pycache__/
+*.pyc
+.venv/
+venv/
+kaggle/
+runs/
+**/*.npz
+**/*.npy
+**/*.safetensors
+.DS_Store
+*.log
+.pytest_cache/
+.mypy_cache/
