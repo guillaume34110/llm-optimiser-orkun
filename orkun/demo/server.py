@@ -282,10 +282,24 @@ class AppState:
         }
 
 
+def _clean_env(name: str) -> str:
+    """Read an env var, stripping the whitespace / wrapping quotes that orchestrators
+    (Coolify, compose) commonly leave on a pasted value — the #1 cause of a password
+    that "looks right" but never matches."""
+    import os
+    v = (os.environ.get(name) or "").strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in ("'", '"'):
+        v = v[1:-1]
+    return v
+
+
+def _admin_user() -> str:
+    return _clean_env("ADMIN_USER") or "admin"
+
+
 def _admin_secret() -> str | None:
     """Admin is enabled only when ADMIN_PASSWORD is set."""
-    import os
-    return os.environ.get("ADMIN_PASSWORD") or None
+    return _clean_env("ADMIN_PASSWORD") or None
 
 
 def _make_token(user: str, secret: str) -> str:
@@ -299,8 +313,12 @@ def make_handler(state: AppState):
     import os
     index_html = (_HERE / "static" / "index.html").read_text()
     admin_html = (_HERE / "static" / "admin.html").read_text()
-    admin_user = os.environ.get("ADMIN_USER", "admin")
+    admin_user = _admin_user()
     MAX_UPLOAD = 2 * 1024 * 1024 * 1024  # 2 GB hard cap on the upload body
+
+    def _eq(a: str, b: str) -> bool:
+        # bytes compare so non-ASCII passwords don't raise in compare_digest
+        return hmac.compare_digest(str(a).encode("utf-8"), str(b).encode("utf-8"))
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -326,7 +344,7 @@ def make_handler(state: AppState):
             from http.cookies import SimpleCookie
             raw = self.headers.get("Cookie", "")
             tok = SimpleCookie(raw).get("grot_admin")
-            return bool(tok and hmac.compare_digest(tok.value, _make_token(admin_user, secret)))
+            return bool(tok and _eq(tok.value, _make_token(admin_user, secret)))
 
         def _read_body(self) -> bytes:
             n = int(self.headers.get("Content-Length", 0))
@@ -373,9 +391,10 @@ def make_handler(state: AppState):
                 req = json.loads(self._read_body() or b"{}")
             except Exception:
                 return self._send(400, json.dumps({"error": "bad json"}))
-            ok_user = hmac.compare_digest(str(req.get("user", "")), admin_user)
-            ok_pass = hmac.compare_digest(str(req.get("password", "")), secret)
+            ok_user = _eq(req.get("user", ""), admin_user)
+            ok_pass = _eq(req.get("password", ""), secret)
             if not (ok_user and ok_pass):
+                print(f"[grot] admin login refused (user_match={ok_user})", flush=True)
                 return self._send(401, json.dumps({"error": "bad credentials"}))
             tok = _make_token(admin_user, secret)
             cookie = f"grot_admin={tok}; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400"
@@ -449,7 +468,9 @@ def main():
     ckpt_path = _ckpt_path(args.checkpoint)
     state = AppState(config, orkish_repo, args.device, ckpt_path)
     state.try_boot(_find_checkpoint(args.checkpoint))
-    admin = "ON" if _admin_secret() else "OFF (set ADMIN_PASSWORD)"
+    secret = _admin_secret()
+    admin = (f"ON (user={_admin_user()!r}, pass_len={len(secret)})" if secret
+             else "OFF (set ADMIN_PASSWORD)")
     print(f"[grot] orkish={orkish_repo}\n[grot] ckpt_target={ckpt_path}\n"
           f"[grot] model_loaded={state.engine is not None}  admin={admin}", flush=True)
     httpd = ThreadingHTTPServer((args.host, args.port), make_handler(state))
