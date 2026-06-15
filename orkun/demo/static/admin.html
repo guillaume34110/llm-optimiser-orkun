@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>GROT admin</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font: 15px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+         background:#0d0f12; color:#d6e2c0; margin:0; }
+  .wrap { max-width:560px; margin:8vh auto; padding:0 20px; }
+  h1 { font-size:20px; color:#9bd44a; letter-spacing:.5px; }
+  .card { background:#15191e; border:1px solid #28303a; border-radius:10px;
+          padding:20px; margin-top:18px; }
+  label { display:block; font-size:12px; color:#7f8c98; margin:12px 0 4px; }
+  input[type=text], input[type=password] { width:100%; box-sizing:border-box;
+          background:#0d0f12; border:1px solid #28303a; color:#d6e2c0;
+          border-radius:6px; padding:9px 10px; font:inherit; }
+  button { margin-top:16px; background:#9bd44a; color:#0d0f12; border:0;
+           border-radius:6px; padding:10px 16px; font:inherit; font-weight:600;
+           cursor:pointer; }
+  button:disabled { opacity:.5; cursor:default; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .muted { color:#7f8c98; font-size:13px; }
+  .ok { color:#9bd44a; } .err { color:#e0623e; }
+  .bar { height:8px; background:#28303a; border-radius:4px; overflow:hidden; margin-top:10px; }
+  .bar > i { display:block; height:100%; width:0; background:#9bd44a; transition:width .2s; }
+  .kv { display:grid; grid-template-columns:130px 1fr; gap:4px 12px; font-size:13px; }
+  .kv b { color:#7f8c98; font-weight:400; }
+  .hidden { display:none; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>⚙ GROT-80M — admin</h1>
+
+  <div id="loginCard" class="card hidden">
+    <div class="muted">Sign in to manage model weights.</div>
+    <label>User</label>
+    <input id="user" type="text" autocomplete="username" value="admin">
+    <label>Password</label>
+    <input id="pass" type="password" autocomplete="current-password">
+    <div class="row"><button id="loginBtn">Login</button>
+      <span id="loginMsg" class="muted"></span></div>
+  </div>
+
+  <div id="panel" class="card hidden">
+    <div class="kv">
+      <b>model loaded</b><span id="sLoaded">—</span>
+      <b>ckpt present</b><span id="sPresent">—</span>
+      <b>ckpt size</b><span id="sSize">—</span>
+      <b>ckpt path</b><span id="sPath" class="muted"></span>
+      <b>last error</b><span id="sErr" class="muted">—</span>
+    </div>
+    <label>Upload weights (.safetensors)</label>
+    <input id="file" type="file" accept=".safetensors">
+    <div class="bar"><i id="prog"></i></div>
+    <div class="row"><button id="upBtn" disabled>Upload &amp; load</button>
+      <span id="upMsg" class="muted"></span></div>
+    <div class="row" style="margin-top:18px">
+      <button id="logoutBtn" style="background:#28303a;color:#d6e2c0">Logout</button>
+      <a class="muted" href="/" style="color:#7f8c98">← back to demo</a>
+    </div>
+  </div>
+
+  <div id="disabled" class="card hidden">
+    <span class="err">Admin disabled.</span>
+    <span class="muted">Set the <code>ADMIN_PASSWORD</code> environment variable to enable it.</span>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const fmtBytes = n => n >= 1e9 ? (n/1e9).toFixed(2)+" GB"
+                    : n >= 1e6 ? (n/1e6).toFixed(1)+" MB"
+                    : n+" B";
+
+async function refresh() {
+  const r = await fetch("/admin/status");
+  if (r.status === 503) { show("disabled"); return; }
+  if (r.status === 401) { show("login"); return; }
+  const s = await r.json();
+  show("panel");
+  $("sLoaded").innerHTML  = s.model_loaded ? '<span class="ok">yes</span>'
+                                           : '<span class="err">no</span>';
+  $("sPresent").textContent = s.ckpt_present ? "yes" : "no";
+  $("sSize").textContent  = s.ckpt_size ? fmtBytes(s.ckpt_size) : "—";
+  $("sPath").textContent  = s.ckpt_path;
+  $("sErr").textContent   = s.last_error || "—";
+}
+
+function show(which) {
+  for (const id of ["loginCard","panel","disabled"]) $(id).classList.add("hidden");
+  if (which === "login")    $("loginCard").classList.remove("hidden");
+  if (which === "panel")    $("panel").classList.remove("hidden");
+  if (which === "disabled") $("disabled").classList.remove("hidden");
+}
+
+$("loginBtn").onclick = async () => {
+  $("loginMsg").textContent = "…";
+  const r = await fetch("/admin/login", {method:"POST",
+    headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({user:$("user").value, password:$("pass").value})});
+  if (r.ok) { $("loginMsg").textContent = ""; refresh(); }
+  else { const e = await r.json(); $("loginMsg").innerHTML =
+         '<span class="err">'+(e.error||"failed")+'</span>'; }
+};
+
+$("logoutBtn").onclick = async () => {
+  await fetch("/admin/logout", {method:"POST"}); show("login");
+};
+
+$("file").onchange = () => { $("upBtn").disabled = !$("file").files.length; };
+
+$("upBtn").onclick = () => {
+  const f = $("file").files[0];
+  if (!f) return;
+  $("upBtn").disabled = true;
+  $("upMsg").textContent = "uploading "+fmtBytes(f.size)+" …";
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/admin/upload");
+  xhr.upload.onprogress = e => {
+    if (e.lengthComputable) $("prog").style.width = (100*e.loaded/e.total)+"%";
+  };
+  xhr.onload = () => {
+    $("upBtn").disabled = false;
+    if (xhr.status === 200) {
+      $("upMsg").innerHTML = '<span class="ok">loaded ✓</span>';
+      $("prog").style.width = "100%"; refresh();
+    } else {
+      let m = "upload failed";
+      try { m = JSON.parse(xhr.responseText).error || m; } catch {}
+      $("upMsg").innerHTML = '<span class="err">'+m+'</span>';
+    }
+  };
+  xhr.onerror = () => { $("upBtn").disabled = false;
+    $("upMsg").innerHTML = '<span class="err">network error</span>'; };
+  xhr.send(f);
+};
+
+refresh();
+</script>
+</body>
+</html>

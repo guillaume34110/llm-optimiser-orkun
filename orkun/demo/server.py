@@ -29,9 +29,16 @@ _HERE = Path(__file__).resolve().parent
 _REPO = _HERE.parent.parent          # orkun repo root (…/orkun/demo/ -> repo)
 
 
-def _resolve_checkpoint(cli: str | None) -> str:
-    """Find the model weights without flags. Order: --checkpoint, $GROT_CKPT,
-    bundled assets/, the kaggle training output."""
+def _ckpt_path(cli: str | None) -> Path:
+    """The canonical weights location (does not need to exist yet — /admin uploads
+    here onto the persistent volume). Order: --checkpoint, $GROT_CKPT, bundled assets/."""
+    import os
+    return Path(cli or os.environ.get("GROT_CKPT")
+                or str(_HERE / "assets" / "grot-80m.safetensors"))
+
+
+def _find_checkpoint(cli: str | None) -> str | None:
+    """Return an existing checkpoint to load at boot, or None (admin uploads later)."""
     import os
     cands = [
         cli, os.environ.get("GROT_CKPT"),
@@ -41,9 +48,7 @@ def _resolve_checkpoint(cli: str | None) -> str:
     for c in cands:
         if c and Path(c).is_file():
             return c
-    raise SystemExit(
-        "[grot] no checkpoint found. Put weights at orkun/demo/assets/grot-80m.safetensors, "
-        "set $GROT_CKPT, or pass --checkpoint.")
+    return None
 
 
 def _resolve_config(cli: str | None) -> str:
@@ -234,36 +239,187 @@ def _pretty(result: dict) -> str:
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 
-def make_handler(engine: Engine):
+class AppState:
+    """Holds the (optionally absent) engine and rebuilds it when admin uploads weights.
+
+    The server boots even with no checkpoint on disk so the operator can deploy the
+    image empty and upload the 319 MB weights once, via /admin, onto a persistent
+    volume — keeping the big blob out of git and out of the image."""
+
+    def __init__(self, config: str, orkish_repo: str, device: str, ckpt_path: Path):
+        import threading
+        self.config = config
+        self.orkish_repo = orkish_repo
+        self.device = device
+        self.ckpt_path = ckpt_path
+        self.engine: Engine | None = None
+        self.lock = threading.Lock()
+        self.last_error: str | None = None
+
+    def try_boot(self, checkpoint: str | None):
+        if checkpoint and Path(checkpoint).is_file():
+            try:
+                self.load(checkpoint)
+            except Exception as e:  # boot must not die on a bad ckpt — admin can re-upload
+                self.last_error = f"{type(e).__name__}: {e}"
+                print(f"[grot] boot load failed: {self.last_error}", flush=True)
+
+    def load(self, checkpoint: str):
+        eng = Engine(checkpoint, self.config, self.orkish_repo, self.device)
+        with self.lock:
+            self.engine = eng
+            self.last_error = None
+        print(f"[grot] model loaded <- {checkpoint}", flush=True)
+
+    def status(self) -> dict:
+        p = self.ckpt_path
+        return {
+            "model_loaded": self.engine is not None,
+            "ckpt_path": str(p),
+            "ckpt_present": p.is_file(),
+            "ckpt_size": p.stat().st_size if p.is_file() else 0,
+            "last_error": self.last_error,
+        }
+
+
+def _admin_secret() -> str | None:
+    """Admin is enabled only when ADMIN_PASSWORD is set."""
+    import os
+    return os.environ.get("ADMIN_PASSWORD") or None
+
+
+def _make_token(user: str, secret: str) -> str:
+    import hashlib
+    import hmac
+    return hmac.new(secret.encode(), f"grot:{user}".encode(), hashlib.sha256).hexdigest()
+
+
+def make_handler(state: AppState):
+    import hmac
+    import os
     index_html = (_HERE / "static" / "index.html").read_text()
+    admin_html = (_HERE / "static" / "admin.html").read_text()
+    admin_user = os.environ.get("ADMIN_USER", "admin")
+    MAX_UPLOAD = 2 * 1024 * 1024 * 1024  # 2 GB hard cap on the upload body
 
     class Handler(BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
         def log_message(self, *a):  # quiet
             pass
 
-        def _send(self, code, body, ctype="application/json"):
+        def _send(self, code, body, ctype="application/json", headers=None):
             data = body.encode() if isinstance(body, str) else body
             self.send_response(code)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(data)))
+            for k, v in (headers or {}).items():
+                self.send_header(k, v)
             self.end_headers()
             self.wfile.write(data)
 
+        # --- admin auth ---------------------------------------------------
+        def _authed(self) -> bool:
+            secret = _admin_secret()
+            if not secret:
+                return False
+            from http.cookies import SimpleCookie
+            raw = self.headers.get("Cookie", "")
+            tok = SimpleCookie(raw).get("grot_admin")
+            return bool(tok and hmac.compare_digest(tok.value, _make_token(admin_user, secret)))
+
+        def _read_body(self) -> bytes:
+            n = int(self.headers.get("Content-Length", 0))
+            return self.rfile.read(n) if n else b""
+
+        # --- routing ------------------------------------------------------
         def do_GET(self):
             if self.path in ("/", "/index.html"):
                 return self._send(200, index_html, "text/html; charset=utf-8")
+            if self.path in ("/admin", "/admin/"):
+                return self._send(200, admin_html, "text/html; charset=utf-8")
+            if self.path == "/admin/status":
+                if not _admin_secret():
+                    return self._send(503, json.dumps({"error": "admin disabled (set ADMIN_PASSWORD)"}))
+                if not self._authed():
+                    return self._send(401, json.dumps({"error": "login required"}))
+                return self._send(200, json.dumps(state.status()))
             if self.path == "/api/meta":
+                if state.engine is None:
+                    return self._send(200, json.dumps({"tools": [], "scenarios": [],
+                                                       "model_loaded": False}))
                 return self._send(200, json.dumps({
-                    "tools": engine.tools, "scenarios": engine.scenarios}))
+                    "tools": state.engine.tools, "scenarios": state.engine.scenarios,
+                    "model_loaded": True}))
             return self._send(404, json.dumps({"error": "not found"}))
 
         def do_POST(self):
-            if self.path != "/api/run":
-                return self._send(404, json.dumps({"error": "not found"}))
+            if self.path == "/admin/login":
+                return self._do_login()
+            if self.path == "/admin/logout":
+                return self._send(200, json.dumps({"ok": True}),
+                                  headers={"Set-Cookie": "grot_admin=; Max-Age=0; Path=/; HttpOnly"})
+            if self.path == "/admin/upload":
+                return self._do_upload()
+            if self.path == "/api/run":
+                return self._do_run()
+            return self._send(404, json.dumps({"error": "not found"}))
+
+        def _do_login(self):
+            secret = _admin_secret()
+            if not secret:
+                return self._send(503, json.dumps({"error": "admin disabled (set ADMIN_PASSWORD)"}))
             try:
-                n = int(self.headers.get("Content-Length", 0))
-                req = json.loads(self.rfile.read(n) or b"{}")
-                result = engine.run(
+                req = json.loads(self._read_body() or b"{}")
+            except Exception:
+                return self._send(400, json.dumps({"error": "bad json"}))
+            ok_user = hmac.compare_digest(str(req.get("user", "")), admin_user)
+            ok_pass = hmac.compare_digest(str(req.get("password", "")), secret)
+            if not (ok_user and ok_pass):
+                return self._send(401, json.dumps({"error": "bad credentials"}))
+            tok = _make_token(admin_user, secret)
+            cookie = f"grot_admin={tok}; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400"
+            return self._send(200, json.dumps({"ok": True}), headers={"Set-Cookie": cookie})
+
+        def _do_upload(self):
+            if not _admin_secret() or not self._authed():
+                return self._send(401, json.dumps({"error": "login required"}))
+            n = int(self.headers.get("Content-Length", 0))
+            if n <= 0 or n > MAX_UPLOAD:
+                return self._send(413, json.dumps({"error": f"bad size {n}"}))
+            dst = state.ckpt_path
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            tmp = dst.with_suffix(dst.suffix + ".upload")
+            got = 0
+            try:
+                with open(tmp, "wb") as f:
+                    while got < n:
+                        chunk = self.rfile.read(min(1 << 20, n - got))
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        got += len(chunk)
+                # Validate it actually loads as a model before swapping it in.
+                state.load(str(tmp))
+                os.replace(tmp, dst)
+                # reload from the final path so the engine points at the persisted file
+                state.load(str(dst))
+                return self._send(200, json.dumps({"ok": True, **state.status()}))
+            except Exception as e:
+                traceback.print_exc()
+                try:
+                    tmp.unlink()
+                except OSError:
+                    pass
+                return self._send(400, json.dumps({"error": f"invalid checkpoint: {e}"}))
+
+        def _do_run(self):
+            if state.engine is None:
+                return self._send(503, json.dumps({
+                    "error": "model not loaded — admin must upload weights at /admin"}))
+            try:
+                req = json.loads(self._read_body() or b"{}")
+                result = state.engine.run(
                     prompt=req.get("prompt", ""),
                     seed=req.get("seed", {}),
                     samples=int(req.get("samples", 6)),
@@ -288,13 +444,15 @@ def main():
     ap.add_argument("--port", type=int, default=int(os.environ.get("GROT_PORT", "8000")))
     args = ap.parse_args()
 
-    checkpoint = _resolve_checkpoint(args.checkpoint)
     config = _resolve_config(args.config)
     orkish_repo = _resolve_orkish(args.orkish_repo)
-    print(f"[grot] ckpt={checkpoint}\n[grot] orkish={orkish_repo}\n[grot] loading model ...",
-          flush=True)
-    engine = Engine(checkpoint, config, orkish_repo, args.device)
-    httpd = ThreadingHTTPServer((args.host, args.port), make_handler(engine))
+    ckpt_path = _ckpt_path(args.checkpoint)
+    state = AppState(config, orkish_repo, args.device, ckpt_path)
+    state.try_boot(_find_checkpoint(args.checkpoint))
+    admin = "ON" if _admin_secret() else "OFF (set ADMIN_PASSWORD)"
+    print(f"[grot] orkish={orkish_repo}\n[grot] ckpt_target={ckpt_path}\n"
+          f"[grot] model_loaded={state.engine is not None}  admin={admin}", flush=True)
+    httpd = ThreadingHTTPServer((args.host, args.port), make_handler(state))
     print(f"[grot] WAAAGH ready -> http://{args.host}:{args.port}", flush=True)
     try:
         httpd.serve_forever()

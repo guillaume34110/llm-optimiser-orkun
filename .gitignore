@@ -6,6 +6,7 @@ __pycache__/
 .claude/
 
 # Model weights / packed corpora (regenerable, multi-GB — never commit)
+# The demo checkpoint is uploaded at runtime via /admin onto a persistent volume.
 *.safetensors
 *.npz
 
