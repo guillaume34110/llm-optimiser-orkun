@@ -29,6 +29,19 @@
   .kv { display:grid; grid-template-columns:130px 1fr; gap:4px 12px; font-size:13px; }
   .kv b { color:#7f8c98; font-weight:400; }
   .hidden { display:none; }
+  .stats { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; margin-top:14px; }
+  .stat { background:#0d0f12; border:1px solid #28303a; border-radius:8px; padding:12px; }
+  .stat .n { font-size:22px; color:#9bd44a; font-weight:600; }
+  .stat .l { font-size:11px; color:#7f8c98; margin-top:2px; }
+  .chip { display:inline-block; background:#0d0f12; border:1px solid #28303a; border-radius:6px;
+          padding:3px 8px; margin:3px 4px 0 0; font-size:12px; }
+  .chip b { color:#9bd44a; }
+  .evwrap { max-height:340px; overflow:auto; margin-top:8px; border:1px solid #28303a; border-radius:8px; }
+  table.ev { width:100%; border-collapse:collapse; font-size:12px; }
+  table.ev td { padding:6px 8px; border-bottom:1px solid #1c2229; vertical-align:top; }
+  table.ev tr:last-child td { border-bottom:0; }
+  .tkind { color:#7f8c98; } .trun { color:#9bd44a; } .tvisit { color:#5a8fd6; }
+  .tip { color:#d6e2c0; } .tprompt { color:#9aa7b3; } .tbad { color:#e0623e; }
 </style>
 </head>
 <body>
@@ -64,6 +77,17 @@
     </div>
   </div>
 
+  <div id="dash" class="card hidden">
+    <div class="row" style="justify-content:space-between">
+      <h1 style="font-size:16px;margin:0">📊 analytics</h1>
+      <button id="dashReload" style="margin:0;background:#28303a;color:#d6e2c0;padding:6px 12px">refresh</button>
+    </div>
+    <div class="stats" id="stats"></div>
+    <div id="toolsBox" style="margin-top:14px"></div>
+    <label style="margin-top:16px">Recent activity</label>
+    <div class="evwrap"><table class="ev" id="evtab"><tbody></tbody></table></div>
+  </div>
+
   <div id="disabled" class="card hidden">
     <span class="err">Admin disabled.</span>
     <span class="muted">Set the <code>ADMIN_PASSWORD</code> environment variable to enable it.</span>
@@ -88,14 +112,62 @@ async function refresh() {
   $("sSize").textContent  = s.ckpt_size ? fmtBytes(s.ckpt_size) : "—";
   $("sPath").textContent  = s.ckpt_path;
   $("sErr").textContent   = s.last_error || "—";
+  loadAnalytics();
 }
 
 function show(which) {
-  for (const id of ["loginCard","panel","disabled"]) $(id).classList.add("hidden");
+  for (const id of ["loginCard","panel","dash","disabled"]) $(id).classList.add("hidden");
   if (which === "login")    $("loginCard").classList.remove("hidden");
-  if (which === "panel")    $("panel").classList.remove("hidden");
+  if (which === "panel")  { $("panel").classList.remove("hidden");
+                            $("dash").classList.remove("hidden"); }
   if (which === "disabled") $("disabled").classList.remove("hidden");
 }
+
+const fmtAgo = ts => {
+  if (!ts) return "—";
+  const s = Math.max(0, Date.now()/1000 - ts);
+  if (s < 60) return Math.floor(s)+"s ago";
+  if (s < 3600) return Math.floor(s/60)+"m ago";
+  if (s < 86400) return Math.floor(s/3600)+"h ago";
+  return Math.floor(s/86400)+"d ago";
+};
+const esc = s => (s||"").replace(/[&<>]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+
+async function loadAnalytics() {
+  let a;
+  try { const r = await fetch("/admin/analytics"); if (!r.ok) return; a = await r.json(); }
+  catch { return; }
+  const stat = (n,l) => `<div class="stat"><div class="n">${n}</div><div class="l">${l}</div></div>`;
+  $("stats").innerHTML =
+      stat(a.total_visits, "page visits")
+    + stat(a.total_runs, "model runs")
+    + stat(a.unique_ips, "unique visitors")
+    + stat(a.visits_24h, "visits · 24h")
+    + stat(a.runs_24h, "runs · 24h")
+    + stat(a.ok_runs+"/"+a.total_runs, "runs with tool fired");
+  const tb = a.tool_breakdown || {};
+  const keys = Object.keys(tb);
+  $("toolsBox").innerHTML = keys.length
+    ? '<label>Tools fired</label>' + keys.map(k => `<span class="chip">${esc(k)} <b>${tb[k]}</b></span>`).join("")
+    : '<span class="muted">No tool calls yet.</span>';
+  const rows = (a.recent || []).map(e => {
+    const kindCls = e.kind === "run" ? "trun" : "tvisit";
+    const okMark = e.kind === "run" ? (e.ok ? '<span class="trun">✓</span>' : '<span class="tbad">✗</span>') : "";
+    const detail = e.kind === "run"
+      ? `<span class="tprompt">${esc(e.prompt) || "(empty)"}</span>`
+        + (e.tools && e.tools.length ? ` <span class="muted">→ ${esc(e.tools.join(", "))}</span>` : "")
+        + (e.ms != null ? ` <span class="muted">· ${e.ms}ms</span>` : "")
+      : '<span class="muted">visited demo</span>';
+    return `<tr>
+      <td class="tkind">${fmtAgo(e.ts)}</td>
+      <td class="${kindCls}">${e.kind}</td>
+      <td class="tip">${esc(e.ip)}</td>
+      <td>${okMark} ${detail}</td></tr>`;
+  }).join("");
+  $("evtab").querySelector("tbody").innerHTML = rows || '<tr><td class="muted">No activity yet.</td></tr>';
+}
+
+$("dashReload").onclick = loadAnalytics;
 
 $("loginBtn").onclick = async () => {
   $("loginMsg").textContent = "…";

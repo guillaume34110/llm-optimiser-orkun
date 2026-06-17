@@ -248,6 +248,7 @@ class AppState:
 
     def __init__(self, config: str, orkish_repo: str, device: str, ckpt_path: Path):
         import threading
+        from orkun.demo.analytics import Analytics
         self.config = config
         self.orkish_repo = orkish_repo
         self.device = device
@@ -255,6 +256,11 @@ class AppState:
         self.engine: Engine | None = None
         self.lock = threading.Lock()
         self.last_error: str | None = None
+        # Analytics log lives on the persistent volume, next to the weights, so it
+        # survives redeploys. Override with $GROT_ANALYTICS.
+        import os
+        apath = os.environ.get("GROT_ANALYTICS") or str(ckpt_path.parent / "analytics.jsonl")
+        self.analytics = Analytics(Path(apath))
 
     def try_boot(self, checkpoint: str | None):
         if checkpoint and Path(checkpoint).is_file():
@@ -350,12 +356,28 @@ def make_handler(state: AppState):
             n = int(self.headers.get("Content-Length", 0))
             return self.rfile.read(n) if n else b""
 
+        def _client_ip(self) -> str:
+            # Behind Coolify/Caddy the real client is the first hop of X-Forwarded-For.
+            xff = self.headers.get("X-Forwarded-For", "")
+            if xff:
+                return xff.split(",")[0].strip()
+            real = self.headers.get("X-Real-IP")
+            return real or (self.client_address[0] if self.client_address else "?")
+
         # --- routing ------------------------------------------------------
         def do_GET(self):
             if self.path in ("/", "/index.html"):
+                state.analytics.log("visit", self._client_ip(),
+                                    self.headers.get("User-Agent", ""))
                 return self._send(200, index_html, "text/html; charset=utf-8")
             if self.path in ("/admin", "/admin/"):
                 return self._send(200, admin_html, "text/html; charset=utf-8")
+            if self.path == "/admin/analytics":
+                if not _admin_secret():
+                    return self._send(503, json.dumps({"error": "admin disabled (set ADMIN_PASSWORD)"}))
+                if not self._authed():
+                    return self._send(401, json.dumps({"error": "login required"}))
+                return self._send(200, json.dumps(state.analytics.summary()))
             if self.path == "/admin/status":
                 if not _admin_secret():
                     return self._send(503, json.dumps({"error": "admin disabled (set ADMIN_PASSWORD)"}))
@@ -436,17 +458,32 @@ def make_handler(state: AppState):
             if state.engine is None:
                 return self._send(503, json.dumps({
                     "error": "model not loaded — admin must upload weights at /admin"}))
+            import time
+            t0 = time.time()
+            prompt = ""
             try:
                 req = json.loads(self._read_body() or b"{}")
+                prompt = req.get("prompt", "")
                 result = state.engine.run(
-                    prompt=req.get("prompt", ""),
+                    prompt=prompt,
                     seed=req.get("seed", {}),
                     samples=int(req.get("samples", 6)),
                     temperature=float(req.get("temperature", 0.45)),
                 )
+                tools = [c["name"] for c in result.get("calls", [])]
+                ok = all(c.get("ok") for c in result.get("calls", [])) and bool(tools)
+                state.analytics.log(
+                    "run", self._client_ip(), self.headers.get("User-Agent", ""),
+                    prompt=prompt, tools=tools, ok=ok,
+                    n_tokens=result.get("n_tokens"),
+                    ms=int((time.time() - t0) * 1000))
                 return self._send(200, json.dumps(result))
             except Exception as e:  # never crash the demo on a bad request
                 traceback.print_exc()
+                state.analytics.log(
+                    "run", self._client_ip(), self.headers.get("User-Agent", ""),
+                    prompt=prompt, tools=[], ok=False,
+                    ms=int((time.time() - t0) * 1000), error=str(e)[:200])
                 return self._send(500, json.dumps({"error": str(e)}))
 
     return Handler
