@@ -61,6 +61,7 @@
     cursor:pointer;background:#1a2810;color:var(--ink);border:1px solid var(--metal);
     padding:7px 11px;font-size:13px;border-radius:4px;transition:.12s}
   .scen button:hover{border-color:var(--ork);color:var(--ork2);transform:translateY(-1px)}
+  .scen button.mon{border-color:var(--ork2);color:#0c1207;background:linear-gradient(180deg,var(--ork),#5d9320);font-weight:700}
   .inrow{display:flex;gap:8px;margin-top:6px}
   textarea{
     flex:1;min-height:54px;resize:vertical;background:#0c1207;color:var(--ink);
@@ -184,6 +185,12 @@
     </div>
   </div>
 
+  <div class="card" id="modelcard" style="display:none">
+    <h2>Pick a grot</h2>
+    <div class="scen" id="models"></div>
+    <div class="sub" id="modeldesc"></div>
+  </div>
+
   <div class="card">
     <h2>Give grot a job</h2>
     <div class="scen" id="scen"></div>
@@ -203,12 +210,33 @@
 <script>
 const $ = s => document.querySelector(s);
 let SCEN = [];
+let MODELS = [], MODEL = null;
+
+function renderModels(){
+  const box = $('#models');
+  if(MODELS.length <= 1){ $('#modelcard').style.display = 'none'; return; }
+  $('#modelcard').style.display = '';
+  box.innerHTML = MODELS.map(m =>
+    `<button data-id="${esc(m.id)}" class="${m.id===MODEL?'mon':''}">${esc(m.label)}</button>`
+  ).join('');
+  box.querySelectorAll('button').forEach(b=>b.onclick=()=>{
+    MODEL = b.dataset.id;
+    box.querySelectorAll('button').forEach(x=>x.classList.toggle('mon', x.dataset.id===MODEL));
+    const m = MODELS.find(x=>x.id===MODEL);
+    $('#modeldesc').textContent = m && m.description ? m.description : '';
+  });
+  const cur = MODELS.find(x=>x.id===MODEL);
+  $('#modeldesc').textContent = cur && cur.description ? cur.description : '';
+}
 
 async function meta(){
   const r = await fetch('/api/meta'); const d = await r.json();
   $('#tools').innerHTML = d.tools.map(t =>
     `<span class="tool ${t.trained?'':'untrained'}" data-name="${t.name}" title="${((t.desc||'')+(t.trained?'':' — grot was never trained to call this')).replace(/"/g,'&quot;')}"><b>${t.name}</b></span>`
   ).join('');
+  MODELS = d.models || [];
+  MODEL = d.active_id || (MODELS[0] && MODELS[0].id) || null;
+  renderModels();
   SCEN = d.scenarios;
   $('#scen').innerHTML = SCEN.map((s,i)=>`<button data-i="${i}">${s.label}</button>`).join('');
   $('#scen').querySelectorAll('button').forEach(b=>b.onclick=()=>{
@@ -225,7 +253,7 @@ async function run(seed){
   document.querySelectorAll('.tool.fired').forEach(t=>t.classList.remove('fired'));
   try{
     const r = await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({prompt, seed: seed||{}, samples:6, temperature:0.45})});
+      body:JSON.stringify({prompt, model: MODEL, seed: seed||{}, samples:6, temperature:0.45})});
     const d = await r.json();
     if(d.error){ $('#out').innerHTML = `<div class="verdict fail">krump! ${esc(d.error)}</div>`; return; }
     render(d);

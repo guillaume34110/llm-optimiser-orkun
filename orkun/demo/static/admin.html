@@ -42,6 +42,9 @@
   table.ev tr:last-child td { border-bottom:0; }
   .tkind { color:#7f8c98; } .trun { color:#9bd44a; } .tvisit { color:#5a8fd6; }
   .tip { color:#d6e2c0; } .tprompt { color:#9aa7b3; } .tbad { color:#e0623e; }
+  .mrow { display:flex; justify-content:space-between; align-items:flex-start; gap:10px;
+          background:#0d0f12; border:1px solid #28303a; border-radius:8px;
+          padding:10px 12px; margin-top:8px; }
 </style>
 </head>
 <body>
@@ -61,16 +64,28 @@
   <div id="panel" class="card hidden">
     <div class="kv">
       <b>model loaded</b><span id="sLoaded">—</span>
-      <b>ckpt present</b><span id="sPresent">—</span>
-      <b>ckpt size</b><span id="sSize">—</span>
-      <b>ckpt path</b><span id="sPath" class="muted"></span>
+      <b>active model</b><span id="sActive" class="muted">—</span>
       <b>last error</b><span id="sErr" class="muted">—</span>
     </div>
-    <label>Upload weights (.safetensors)</label>
+
+    <label style="margin-top:16px">Models on the persistent volume</label>
+    <div id="modelList" class="muted">—</div>
+
+    <label style="margin-top:18px">Upload a model slot</label>
+    <div class="kv" style="grid-template-columns:90px 1fr">
+      <b>id</b><input id="mId" type="text" placeholder="mid / final / postorkun">
+      <b>label</b><input id="mLabel" type="text" placeholder="GROT-80M · mid-training">
+      <b>desc</b><input id="mDesc" type="text" placeholder="short description (shown to visitors)">
+    </div>
+    <label style="margin-top:10px">Weights (.safetensors)</label>
     <input id="file" type="file" accept=".safetensors">
     <div class="bar"><i id="prog"></i></div>
-    <div class="row"><button id="upBtn" disabled>Upload &amp; load</button>
+    <div class="row"><button id="upBtn" disabled>Upload &amp; validate</button>
       <span id="upMsg" class="muted"></span></div>
+    <div class="muted" style="font-size:12px;margin-top:6px">
+      Re-using an existing id replaces that slot. Files persist across redeploys
+      (volume mounted at /data).</div>
+
     <div class="row" style="margin-top:18px">
       <button id="logoutBtn" style="background:#28303a;color:#d6e2c0">Logout</button>
       <a class="muted" href="/" style="color:#7f8c98">← back to demo</a>
@@ -108,11 +123,32 @@ async function refresh() {
   show("panel");
   $("sLoaded").innerHTML  = s.model_loaded ? '<span class="ok">yes</span>'
                                            : '<span class="err">no</span>';
-  $("sPresent").textContent = s.ckpt_present ? "yes" : "no";
-  $("sSize").textContent  = s.ckpt_size ? fmtBytes(s.ckpt_size) : "—";
-  $("sPath").textContent  = s.ckpt_path;
+  $("sActive").textContent = s.active_id || "—";
   $("sErr").textContent   = s.last_error || "—";
+  renderModels(s.models || [], s.active_id);
   loadAnalytics();
+}
+
+function renderModels(models, activeId) {
+  if (!models.length) { $("modelList").textContent = "no models uploaded yet"; return; }
+  $("modelList").innerHTML = models.map(m => {
+    const live = m.id === activeId ? ' <span class="ok">● live</span>' : "";
+    return `<div class="mrow">
+      <div><b style="color:#9bd44a">${esc(m.id)}</b>${live}
+        <span class="muted">— ${esc(m.label)}</span>
+        ${m.description ? `<div class="muted" style="font-size:12px">${esc(m.description)}</div>` : ""}
+        <span class="muted" style="font-size:12px">${m.present ? fmtBytes(m.size) : "missing"}</span></div>
+      <button class="del" data-id="${esc(m.id)}"
+        style="margin:0;background:#3a2228;color:#e0623e;padding:5px 10px">delete</button>
+    </div>`;
+  }).join("");
+  for (const b of $("modelList").querySelectorAll(".del")) {
+    b.onclick = async () => {
+      if (!confirm("Delete model '"+b.dataset.id+"'? This removes the weights file.")) return;
+      await fetch("/admin/delete?id="+encodeURIComponent(b.dataset.id), {method:"POST"});
+      refresh();
+    };
+  }
 }
 
 function show(which) {
@@ -183,15 +219,22 @@ $("logoutBtn").onclick = async () => {
   await fetch("/admin/logout", {method:"POST"}); show("login");
 };
 
-$("file").onchange = () => { $("upBtn").disabled = !$("file").files.length; };
+const validId = s => /^[a-z0-9][a-z0-9_-]{0,31}$/.test(s);
+const gateUp = () => { $("upBtn").disabled = !($("file").files.length && validId($("mId").value.trim())); };
+$("file").onchange = gateUp;
+$("mId").oninput = gateUp;
 
 $("upBtn").onclick = () => {
   const f = $("file").files[0];
-  if (!f) return;
+  const id = $("mId").value.trim();
+  if (!f || !validId(id)) return;
   $("upBtn").disabled = true;
   $("upMsg").textContent = "uploading "+fmtBytes(f.size)+" …";
+  const qs = "?id=" + encodeURIComponent(id)
+           + "&label=" + encodeURIComponent($("mLabel").value.trim())
+           + "&desc=" + encodeURIComponent($("mDesc").value.trim());
   const xhr = new XMLHttpRequest();
-  xhr.open("POST", "/admin/upload");
+  xhr.open("POST", "/admin/upload" + qs);
   xhr.upload.onprogress = e => {
     if (e.lengthComputable) $("prog").style.width = (100*e.loaded/e.total)+"%";
   };

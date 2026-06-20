@@ -240,50 +240,77 @@ def _pretty(result: dict) -> str:
 
 
 class AppState:
-    """Holds the (optionally absent) engine and rebuilds it when admin uploads weights.
+    """Owns the model registry and a single-slot engine cache.
 
-    The server boots even with no checkpoint on disk so the operator can deploy the
-    image empty and upload the 319 MB weights once, via /admin, onto a persistent
-    volume — keeping the big blob out of git and out of the image."""
+    Several checkpoints (mid-training, final, post-Orkun) live side-by-side on the
+    persistent volume; a visitor picks which one to run. On a small (2 GB) VPS we
+    can only hold ONE model in RAM, so the engine is (re)built lazily when a
+    different slot is requested and the previous one is evicted. The server still
+    boots fine with no weights at all — the operator uploads them once via /admin
+    onto the persistent volume, keeping the big blobs out of git and the image."""
 
     def __init__(self, config: str, orkish_repo: str, device: str, ckpt_path: Path):
+        import os
         import threading
         from orkun.demo.analytics import Analytics
+        from orkun.demo.models import ModelRegistry
         self.config = config
         self.orkish_repo = orkish_repo
         self.device = device
-        self.ckpt_path = ckpt_path
+        self.ckpt_path = ckpt_path  # legacy single-file path (migrated into a slot)
+        # Model slots live under <volume>/models/. Override with $GROT_MODELS_DIR.
+        mdir = os.environ.get("GROT_MODELS_DIR") or str(ckpt_path.parent / "models")
+        self.registry = ModelRegistry(Path(mdir))
         self.engine: Engine | None = None
+        self.active_id: str | None = None
         self.lock = threading.Lock()
         self.last_error: str | None = None
-        # Analytics log lives on the persistent volume, next to the weights, so it
-        # survives redeploys. Override with $GROT_ANALYTICS.
-        import os
+        # Analytics log lives on the persistent volume too, so it survives redeploys.
         apath = os.environ.get("GROT_ANALYTICS") or str(ckpt_path.parent / "analytics.jsonl")
         self.analytics = Analytics(Path(apath))
 
     def try_boot(self, checkpoint: str | None):
-        if checkpoint and Path(checkpoint).is_file():
+        """Adopt any legacy single-file checkpoint into a slot, then warm the first
+        available model so the demo answers immediately after a redeploy."""
+        for legacy in (checkpoint, str(self.ckpt_path)):
+            if legacy and Path(legacy).is_file():
+                self.registry.migrate_legacy(Path(legacy))
+                break
+        first = next((m for m in self.registry.list() if m["present"]), None)
+        if first:
             try:
-                self.load(checkpoint)
-            except Exception as e:  # boot must not die on a bad ckpt — admin can re-upload
+                self.get_engine(first["id"])
+            except Exception as e:  # boot must not die on a bad ckpt — admin re-uploads
                 self.last_error = f"{type(e).__name__}: {e}"
                 print(f"[grot] boot load failed: {self.last_error}", flush=True)
 
-    def load(self, checkpoint: str):
-        eng = Engine(checkpoint, self.config, self.orkish_repo, self.device)
+    def get_engine(self, slot_id: str) -> Engine:
+        """Return the engine for ``slot_id``, building it (and evicting the previous
+        model from RAM) if it is not the one currently loaded."""
         with self.lock:
+            if self.engine is not None and self.active_id == slot_id:
+                return self.engine
+            path = self.registry.path(slot_id)
+            if path is None:
+                raise FileNotFoundError(f"no weights for model {slot_id!r}")
+            # Evict before allocating the replacement so peak RAM stays ~1 model.
+            self.engine = None
+            self.active_id = None
+            import gc
+            gc.collect()
+            eng = Engine(str(path), self.config, self.orkish_repo, self.device)
             self.engine = eng
+            self.active_id = slot_id
             self.last_error = None
-        print(f"[grot] model loaded <- {checkpoint}", flush=True)
+            print(f"[grot] model loaded <- {slot_id} ({path})", flush=True)
+            return eng
 
     def status(self) -> dict:
-        p = self.ckpt_path
         return {
             "model_loaded": self.engine is not None,
-            "ckpt_path": str(p),
-            "ckpt_present": p.is_file(),
-            "ckpt_size": p.stat().st_size if p.is_file() else 0,
+            "active_id": self.active_id,
+            "models": self.registry.list(),
+            "models_dir": str(self.registry.root),
             "last_error": self.last_error,
         }
 
@@ -385,12 +412,15 @@ def make_handler(state: AppState):
                     return self._send(401, json.dumps({"error": "login required"}))
                 return self._send(200, json.dumps(state.status()))
             if self.path == "/api/meta":
-                if state.engine is None:
-                    return self._send(200, json.dumps({"tools": [], "scenarios": [],
-                                                       "model_loaded": False}))
+                eng = state.engine
                 return self._send(200, json.dumps({
-                    "tools": state.engine.tools, "scenarios": state.engine.scenarios,
-                    "model_loaded": True}))
+                    "tools": eng.tools if eng else [],
+                    "scenarios": eng.scenarios if eng else [],
+                    "models": [{"id": m["id"], "label": m["label"],
+                                "description": m["description"]}
+                               for m in state.registry.list() if m["present"]],
+                    "active_id": state.active_id,
+                    "model_loaded": eng is not None}))
             return self._send(404, json.dumps({"error": "not found"}))
 
         def do_POST(self):
@@ -399,8 +429,10 @@ def make_handler(state: AppState):
             if self.path == "/admin/logout":
                 return self._send(200, json.dumps({"ok": True}),
                                   headers={"Set-Cookie": "grot_admin=; Max-Age=0; Path=/; HttpOnly"})
-            if self.path == "/admin/upload":
+            if self.path.split("?")[0] == "/admin/upload":
                 return self._do_upload()
+            if self.path.split("?")[0] == "/admin/delete":
+                return self._do_delete()
             if self.path == "/api/run":
                 return self._do_run()
             return self._send(404, json.dumps({"error": "not found"}))
@@ -422,13 +454,25 @@ def make_handler(state: AppState):
             cookie = f"grot_admin={tok}; Path=/; HttpOnly; SameSite=Strict; Max-Age=86400"
             return self._send(200, json.dumps({"ok": True}), headers={"Set-Cookie": cookie})
 
+        def _query(self) -> dict:
+            from urllib.parse import parse_qs, urlparse
+            return {k: v[0] for k, v in parse_qs(urlparse(self.path).query).items()}
+
         def _do_upload(self):
             if not _admin_secret() or not self._authed():
                 return self._send(401, json.dumps({"error": "login required"}))
+            from orkun.demo.models import valid_id
+            q = self._query()
+            slot_id = q.get("id", "").strip()
+            if not valid_id(slot_id):
+                return self._send(400, json.dumps({
+                    "error": "bad model id (use a-z 0-9 _ - , max 32 chars)"}))
+            label = q.get("label", slot_id).strip()
+            desc = q.get("desc", "").strip()
             n = int(self.headers.get("Content-Length", 0))
             if n <= 0 or n > MAX_UPLOAD:
                 return self._send(413, json.dumps({"error": f"bad size {n}"}))
-            dst = state.ckpt_path
+            dst = state.registry.file_for(slot_id)
             dst.parent.mkdir(parents=True, exist_ok=True)
             tmp = dst.with_suffix(dst.suffix + ".upload")
             got = 0
@@ -440,11 +484,10 @@ def make_handler(state: AppState):
                             break
                         f.write(chunk)
                         got += len(chunk)
-                # Validate it actually loads as a model before swapping it in.
-                state.load(str(tmp))
+                # Validate it actually loads as a model before publishing the slot.
+                Engine(str(tmp), state.config, state.orkish_repo, state.device)
                 os.replace(tmp, dst)
-                # reload from the final path so the engine points at the persisted file
-                state.load(str(dst))
+                state.registry.register(slot_id, label, desc, dst.stat().st_size)
                 return self._send(200, json.dumps({"ok": True, **state.status()}))
             except Exception as e:
                 traceback.print_exc()
@@ -454,27 +497,50 @@ def make_handler(state: AppState):
                     pass
                 return self._send(400, json.dumps({"error": f"invalid checkpoint: {e}"}))
 
+        def _do_delete(self):
+            if not _admin_secret() or not self._authed():
+                return self._send(401, json.dumps({"error": "login required"}))
+            from orkun.demo.models import valid_id
+            slot_id = self._query().get("id", "").strip()
+            if not valid_id(slot_id):
+                return self._send(400, json.dumps({"error": "bad model id"}))
+            with state.lock:
+                if state.active_id == slot_id:  # drop it from RAM if it's the live one
+                    state.engine = None
+                    state.active_id = None
+            ok = state.registry.remove(slot_id)
+            code = 200 if ok else 404
+            return self._send(code, json.dumps({"ok": ok, **state.status()}))
+
         def _do_run(self):
-            if state.engine is None:
-                return self._send(503, json.dumps({
-                    "error": "model not loaded — admin must upload weights at /admin"}))
             import time
             t0 = time.time()
             prompt = ""
+            model_id = ""
             try:
                 req = json.loads(self._read_body() or b"{}")
                 prompt = req.get("prompt", "")
-                result = state.engine.run(
+                # Visitor picks the model; fall back to whatever is live, else the
+                # first available slot. Loading a different slot evicts the previous.
+                model_id = (req.get("model") or state.active_id
+                            or next((m["id"] for m in state.registry.list()
+                                     if m["present"]), None))
+                if not model_id:
+                    return self._send(503, json.dumps({
+                        "error": "no model available — admin must upload weights at /admin"}))
+                engine = state.get_engine(model_id)
+                result = engine.run(
                     prompt=prompt,
                     seed=req.get("seed", {}),
                     samples=int(req.get("samples", 6)),
                     temperature=float(req.get("temperature", 0.45)),
                 )
+                result["model"] = model_id
                 tools = [c["name"] for c in result.get("calls", [])]
                 ok = all(c.get("ok") for c in result.get("calls", [])) and bool(tools)
                 state.analytics.log(
                     "run", self._client_ip(), self.headers.get("User-Agent", ""),
-                    prompt=prompt, tools=tools, ok=ok,
+                    prompt=prompt, model=model_id, tools=tools, ok=ok,
                     n_tokens=result.get("n_tokens"),
                     ms=int((time.time() - t0) * 1000))
                 return self._send(200, json.dumps(result))
@@ -482,7 +548,7 @@ def make_handler(state: AppState):
                 traceback.print_exc()
                 state.analytics.log(
                     "run", self._client_ip(), self.headers.get("User-Agent", ""),
-                    prompt=prompt, tools=[], ok=False,
+                    prompt=prompt, model=model_id, tools=[], ok=False,
                     ms=int((time.time() - t0) * 1000), error=str(e)[:200])
                 return self._send(500, json.dumps({"error": str(e)}))
 
