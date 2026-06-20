@@ -60,7 +60,7 @@
 </head>
 <body>
   <h1>GROT joue aux <span class="tusk">échecs</span></h1>
-  <div class="tag">WAAAGH · GROT-80M · tu joues les blancs</div>
+  <div class="tag">WAAAGH · GROT-80M v3 (post-Orkun) · tu joues les blancs</div>
   <div class="wrap">
     <div id="board" class="board" aria-label="échiquier"></div>
     <div class="panel">
@@ -68,7 +68,7 @@
       <p id="status" class="status">Chargement…</p>
       <div class="row">
         <span>Adversaire</span>
-        <select id="model" title="modèle grot"></select>
+        <b style="color:var(--ork2)">grot v3</b>
       </div>
       <div class="row" style="gap:10px">
         <button id="new" class="primary" style="flex:1">Nouvelle partie</button>
@@ -99,6 +99,10 @@ let selected = null;          // selected source square e.g. 'e2'
 let targets = [];             // legal target squares for the selection
 let lastMove = null;          // {from,to} for highlight
 let busy = false;             // grot is thinking — lock the board
+let V3_ID = null;             // chess opponent is ALWAYS the post-Orkun v3 model
+let locked = true;            // board locked until v3 is confirmed present
+
+function isV3(id){ return id === 'v3' || id === 'grot-v3' || /(^|-)v3$/.test(id || ''); }
 
 function fileRank(row, col){ return 'abcdefgh'[col] + (8 - row); }
 
@@ -144,6 +148,11 @@ function renderMoves(){
 
 function renderStatus(msg){
   if (msg){ statusEl.innerHTML = msg; return; }
+  if (locked){
+    statusEl.innerHTML = '<span class="err">grot v3 pas encore là.</span> '
+      + 'Reviens après l\'entraînement self-play.';
+    return;
+  }
   if (game.isCheckmate()){
     statusEl.innerHTML = game.turn() === 'w'
       ? 'Échec et mat — <b>grot gagne</b> 💀' : '<b>Échec et mat — tu gagnes</b> 🏆';
@@ -159,7 +168,7 @@ function renderStatus(msg){
 }
 
 function onClick(sq){
-  if (busy || game.isGameOver() || game.turn() !== 'w') return;
+  if (locked || busy || game.isGameOver() || game.turn() !== 'w') return;
   const piece = game.get(sq);
   if (selected && targets.includes(sq)){
     playerMove(selected, sq);
@@ -194,7 +203,7 @@ async function grotMove(){
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({
         fen: game.fen(), legal_moves: legal, history,
-        model: $('model').value || undefined,
+        model: V3_ID,
       }),
     });
     const data = await res.json();
@@ -226,27 +235,21 @@ function undo(){
   selected = null; targets = []; lastMove = null; render();
 }
 
-async function loadModels(){
+// The chess opponent is fixed to v3 (the only grot trained on chess). If v3 isn't
+// uploaded yet the board stays locked — v1/v2 play random, not worth offering.
+async function loadV3(){
   try {
     const meta = await (await fetch('/api/meta')).json();
-    const sel = $('model');
-    sel.innerHTML = '';
-    (meta.models || []).forEach(m => {
-      const o = document.createElement('option');
-      o.value = m.id; o.textContent = m.label || m.id;
-      if (m.id === meta.active_id) o.selected = true;
-      sel.appendChild(o);
-    });
-    if (!(meta.models || []).length){
-      const o = document.createElement('option');
-      o.textContent = 'aucun modèle'; o.value = ''; sel.appendChild(o);
-    }
-  } catch { /* offline — grot endpoint will report */ }
+    const m = (meta.models || []).find(x => isV3(x.id));
+    if (m){ V3_ID = m.id; locked = false; }
+    else { locked = true; }
+  } catch { locked = true; }
+  render();
 }
 
 $('new').addEventListener('click', newGame);
 $('undo').addEventListener('click', undo);
-loadModels();
+loadV3();
 render();
 </script>
 </body>
