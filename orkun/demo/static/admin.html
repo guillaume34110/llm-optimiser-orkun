@@ -45,6 +45,17 @@
   .mrow { display:flex; justify-content:space-between; align-items:flex-start; gap:10px;
           background:#0d0f12; border:1px solid #28303a; border-radius:8px;
           padding:10px 12px; margin-top:8px; }
+  .slot { background:#0d0f12; border:1px solid #28303a; border-radius:8px;
+          padding:12px 14px; margin-top:10px; }
+  .slot.live { border-color:#9bd44a; }
+  .slot .hd { display:flex; justify-content:space-between; align-items:center; gap:10px; }
+  .slot .sid { color:#9bd44a; font-weight:600; }
+  .slot .meta { font-size:12px; color:#7f8c98; margin-top:4px; }
+  .slot input[type=text] { font-size:13px; padding:6px 8px; margin-top:6px; }
+  .slot input[type=file] { font-size:12px; margin-top:8px; max-width:100%; }
+  .slot button { margin-top:0; padding:7px 12px; font-size:13px; }
+  .slot .del { background:#3a2228; color:#e0623e; }
+  .slot .upmsg { font-size:12px; }
 </style>
 </head>
 <body>
@@ -65,26 +76,16 @@
     <div class="kv">
       <b>model loaded</b><span id="sLoaded">—</span>
       <b>active model</b><span id="sActive" class="muted">—</span>
+      <b>queue depth</b><span id="sQueue" class="muted">—</span>
       <b>last error</b><span id="sErr" class="muted">—</span>
     </div>
 
-    <label style="margin-top:16px">Models on the persistent volume</label>
-    <div id="modelList" class="muted">—</div>
-
-    <label style="margin-top:18px">Upload a model slot</label>
-    <div class="kv" style="grid-template-columns:90px 1fr">
-      <b>id</b><input id="mId" type="text" placeholder="mid / final / postorkun">
-      <b>label</b><input id="mLabel" type="text" placeholder="GROT-80M · mid-training">
-      <b>desc</b><input id="mDesc" type="text" placeholder="short description (shown to visitors)">
-    </div>
-    <label style="margin-top:10px">Weights (.safetensors)</label>
-    <input id="file" type="file" accept=".safetensors">
-    <div class="bar"><i id="prog"></i></div>
-    <div class="row"><button id="upBtn" disabled>Upload &amp; validate</button>
-      <span id="upMsg" class="muted"></span></div>
-    <div class="muted" style="font-size:12px;margin-top:6px">
-      Re-using an existing id replaces that slot. Files persist across redeploys
-      (volume mounted at /data).</div>
+    <label style="margin-top:16px">Model slots — 3 fixed (one active at a time, 4 GB VPS)</label>
+    <div id="slots"></div>
+    <div class="muted" style="font-size:12px;margin-top:8px">
+      Each slot has its own upload button. Re-uploading replaces that slot's weights.
+      Files persist across redeploys (volume at /data). Visitors are served one at a
+      time (request queue), so a busy model never thrashes RAM.</div>
 
     <div class="row" style="margin-top:18px">
       <button id="logoutBtn" style="background:#28303a;color:#d6e2c0">Logout</button>
@@ -124,31 +125,97 @@ async function refresh() {
   $("sLoaded").innerHTML  = s.model_loaded ? '<span class="ok">yes</span>'
                                            : '<span class="err">no</span>';
   $("sActive").textContent = s.active_id || "—";
+  $("sQueue").textContent  = (s.queue_depth != null) ? String(s.queue_depth) : "—";
   $("sErr").textContent   = s.last_error || "—";
-  renderModels(s.models || [], s.active_id);
+  renderSlots(s.models || [], s.active_id);
   loadAnalytics();
 }
 
-function renderModels(models, activeId) {
-  if (!models.length) { $("modelList").textContent = "no models uploaded yet"; return; }
-  $("modelList").innerHTML = models.map(m => {
-    const live = m.id === activeId ? ' <span class="ok">● live</span>' : "";
-    return `<div class="mrow">
-      <div><b style="color:#9bd44a">${esc(m.id)}</b>${live}
-        <span class="muted">— ${esc(m.label)}</span>
-        ${m.description ? `<div class="muted" style="font-size:12px">${esc(m.description)}</div>` : ""}
-        <span class="muted" style="font-size:12px">${m.present ? fmtBytes(m.size) : "missing"}</span></div>
-      <button class="del" data-id="${esc(m.id)}"
-        style="margin:0;background:#3a2228;color:#e0623e;padding:5px 10px">delete</button>
+// The three fixed slots the demo exposes. Ids are stable; labels/descs are the
+// defaults shown when a slot is still empty (the admin can override on upload).
+const SLOTS = [
+  {id:"v1", label:"GROT-80M · v1",            desc:"baseline"},
+  {id:"v2", label:"GROT-80M · v2",            desc:"generalized copy (WAAAGH 1.1)"},
+  {id:"v3", label:"GROT-80M · v3 (post-Orkun)", desc:"after self-play training"},
+];
+
+function renderSlots(models, activeId) {
+  const byId = Object.fromEntries(models.map(m => [m.id, m]));
+  $("slots").innerHTML = SLOTS.map(s => {
+    const m = byId[s.id];
+    const present = m && m.present;
+    const live = m && m.id === activeId;
+    const label = (m && m.label) || s.label;
+    const desc  = (m && m.description) || s.desc;
+    const meta = present
+      ? `<span class="ok">uploaded</span> · ${fmtBytes(m.size)}`
+      : `<span class="err">empty</span> — no weights yet`;
+    return `<div class="slot${live ? " live" : ""}">
+      <div class="hd">
+        <div><span class="sid">${esc(s.id)}</span>${live ? ' <span class="ok">● live</span>' : ""}
+          <span class="muted">— ${esc(label)}</span></div>
+        ${present ? `<button class="del" data-id="${esc(s.id)}">delete</button>` : ""}
+      </div>
+      <div class="meta">${meta}${desc ? " · " + esc(desc) : ""}</div>
+      <input class="slabel" data-id="${esc(s.id)}" type="text" placeholder="label (shown to visitors)" value="${esc(label)}">
+      <input class="sdesc"  data-id="${esc(s.id)}" type="text" placeholder="short description" value="${esc(desc)}">
+      <div class="row" style="margin-top:8px">
+        <input class="sfile" data-id="${esc(s.id)}" type="file" accept=".safetensors">
+        <button class="up" data-id="${esc(s.id)}" disabled>${present ? "replace" : "upload"} &amp; validate</button>
+        <span class="upmsg muted" data-id="${esc(s.id)}"></span>
+      </div>
+      <div class="bar"><i class="prog" data-id="${esc(s.id)}"></i></div>
     </div>`;
   }).join("");
-  for (const b of $("modelList").querySelectorAll(".del")) {
+  wireSlots();
+}
+
+function slotEl(cls, id) {
+  return $("slots").querySelector(`.${cls}[data-id="${id}"]`);
+}
+
+function wireSlots() {
+  for (const b of $("slots").querySelectorAll(".del")) {
     b.onclick = async () => {
-      if (!confirm("Delete model '"+b.dataset.id+"'? This removes the weights file.")) return;
+      if (!confirm("Delete slot '"+b.dataset.id+"'? This removes the weights file.")) return;
       await fetch("/admin/delete?id="+encodeURIComponent(b.dataset.id), {method:"POST"});
       refresh();
     };
   }
+  for (const f of $("slots").querySelectorAll(".sfile")) {
+    f.onchange = () => { slotEl("up", f.dataset.id).disabled = !f.files.length; };
+  }
+  for (const u of $("slots").querySelectorAll(".up")) {
+    u.onclick = () => uploadSlot(u.dataset.id);
+  }
+}
+
+function uploadSlot(id) {
+  const f = slotEl("sfile", id).files[0];
+  if (!f) return;
+  const up = slotEl("up", id), msg = slotEl("upmsg", id), prog = slotEl("prog", id);
+  up.disabled = true;
+  msg.className = "upmsg muted"; msg.textContent = "uploading " + fmtBytes(f.size) + " …";
+  const qs = "?id=" + encodeURIComponent(id)
+           + "&label=" + encodeURIComponent(slotEl("slabel", id).value.trim())
+           + "&desc=" + encodeURIComponent(slotEl("sdesc", id).value.trim());
+  const xhr = new XMLHttpRequest();
+  xhr.open("POST", "/admin/upload" + qs);
+  xhr.upload.onprogress = e => {
+    if (e.lengthComputable) prog.style.width = (100 * e.loaded / e.total) + "%";
+  };
+  xhr.onload = () => {
+    if (xhr.status === 200) {
+      msg.className = "upmsg ok"; msg.textContent = "loaded ✓";
+      prog.style.width = "100%"; setTimeout(refresh, 600);
+    } else {
+      let m = "upload failed";
+      try { m = JSON.parse(xhr.responseText).error || m; } catch {}
+      msg.className = "upmsg err"; msg.textContent = m; up.disabled = false;
+    }
+  };
+  xhr.onerror = () => { msg.className = "upmsg err"; msg.textContent = "network error"; up.disabled = false; };
+  xhr.send(f);
 }
 
 function show(which) {
@@ -217,41 +284,6 @@ $("loginBtn").onclick = async () => {
 
 $("logoutBtn").onclick = async () => {
   await fetch("/admin/logout", {method:"POST"}); show("login");
-};
-
-const validId = s => /^[a-z0-9][a-z0-9_-]{0,31}$/.test(s);
-const gateUp = () => { $("upBtn").disabled = !($("file").files.length && validId($("mId").value.trim())); };
-$("file").onchange = gateUp;
-$("mId").oninput = gateUp;
-
-$("upBtn").onclick = () => {
-  const f = $("file").files[0];
-  const id = $("mId").value.trim();
-  if (!f || !validId(id)) return;
-  $("upBtn").disabled = true;
-  $("upMsg").textContent = "uploading "+fmtBytes(f.size)+" …";
-  const qs = "?id=" + encodeURIComponent(id)
-           + "&label=" + encodeURIComponent($("mLabel").value.trim())
-           + "&desc=" + encodeURIComponent($("mDesc").value.trim());
-  const xhr = new XMLHttpRequest();
-  xhr.open("POST", "/admin/upload" + qs);
-  xhr.upload.onprogress = e => {
-    if (e.lengthComputable) $("prog").style.width = (100*e.loaded/e.total)+"%";
-  };
-  xhr.onload = () => {
-    $("upBtn").disabled = false;
-    if (xhr.status === 200) {
-      $("upMsg").innerHTML = '<span class="ok">loaded ✓</span>';
-      $("prog").style.width = "100%"; refresh();
-    } else {
-      let m = "upload failed";
-      try { m = JSON.parse(xhr.responseText).error || m; } catch {}
-      $("upMsg").innerHTML = '<span class="err">'+m+'</span>';
-    }
-  };
-  xhr.onerror = () => { $("upBtn").disabled = false;
-    $("upMsg").innerHTML = '<span class="err">network error</span>'; };
-  xhr.send(f);
 };
 
 refresh();

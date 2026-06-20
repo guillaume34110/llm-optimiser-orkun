@@ -62,6 +62,28 @@
     padding:7px 11px;font-size:13px;border-radius:4px;transition:.12s}
   .scen button:hover{border-color:var(--ork);color:var(--ork2);transform:translateY(-1px)}
   .scen button.mon{border-color:var(--ork2);color:#0c1207;background:linear-gradient(180deg,var(--ork),#5d9320);font-weight:700}
+  /* model picker — version chip + label, frames the v1 -> v2 progression */
+  .scen button.mbtn{display:inline-flex;align-items:center;gap:8px;padding:8px 12px}
+  .mver{font-size:10px;font-weight:800;letter-spacing:.5px;background:#0c1207;
+    border:1px solid var(--metal);color:var(--ork2);border-radius:3px;padding:1px 6px}
+  .scen button.mon .mver{border-color:#0c1207;color:#0c1207;background:rgba(12,18,7,.18)}
+  .mprog{display:flex;align-items:center;gap:8px;color:#9bbf6f;font-size:12px;margin:2px 0 12px;
+    letter-spacing:.5px}
+  .mprog .arrow{color:var(--ork2);font-weight:800}
+  /* download weights — grab any checkpoint as a .safetensors file */
+  .dlrow{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+  .dlbtn{display:inline-flex;align-items:center;gap:7px;text-decoration:none;cursor:pointer;
+    background:#0c1207;color:var(--ork2);border:1px solid var(--metal);border-radius:4px;
+    padding:6px 11px;font-size:12px;transition:.12s}
+  .dlbtn:hover{border-color:var(--ork);color:var(--ink);transform:translateY(-1px)}
+  .dlbtn .sz{color:#7d975a;font-size:11px}
+  /* copy-test scenarios — set apart so the progression angle reads at a glance */
+  .copyhdr{flex-basis:100%;width:100%;margin:8px 0 2px;font-size:11px;letter-spacing:1px;
+    text-transform:uppercase;color:var(--ork2)}
+  .scen button.copybtn{border-color:rgba(194,69,31,.45);background:#241409}
+  .scen button.copybtn:hover{border-color:var(--rust);color:#ff8a5c}
+  .whochip{font-size:11px;font-weight:800;letter-spacing:.5px;background:#0c1207;
+    border:1px solid var(--ork2);color:var(--ork2);border-radius:3px;padding:1px 6px;margin-right:6px}
   .inrow{display:flex;gap:8px;margin-top:6px}
   textarea{
     flex:1;min-height:54px;resize:vertical;background:#0c1207;color:var(--ink);
@@ -164,6 +186,7 @@
     <svg class="mascot" viewBox="0 0 240 240"><use href="#grot"/></svg>
     <h1>WAAAGH<span class="tusk">·</span>GROT-80M</h1>
     <div class="tag">tool-callin' orko-engine — 80M params, trained from scratch</div>
+    <div class="tag" style="margin-top:8px">♟ <a href="/chess">play grot at chess →</a></div>
   </header>
 
   <div class="card">
@@ -186,9 +209,11 @@
   </div>
 
   <div class="card" id="modelcard" style="display:none">
-    <h2>Pick a grot</h2>
+    <h2>Pick a grot · watch it level up</h2>
+    <div class="mprog" id="mprog"></div>
     <div class="scen" id="models"></div>
     <div class="sub" id="modeldesc"></div>
+    <div class="dlrow" id="modeldl"></div>
   </div>
 
   <div class="card">
@@ -216,8 +241,16 @@ function renderModels(){
   const box = $('#models');
   if(MODELS.length <= 1){ $('#modelcard').style.display = 'none'; return; }
   $('#modelcard').style.display = '';
-  box.innerHTML = MODELS.map(m =>
-    `<button data-id="${esc(m.id)}" class="${m.id===MODEL?'mon':''}">${esc(m.label)}</button>`
+  // Same 80M net at successive training stages — number them v1, v2, … in manifest order
+  // so the picker reads as a progression, not just a switch.
+  $('#mprog').innerHTML = MODELS
+    .map((m,i)=>`<span class="mver">v${i+1}</span>`)
+    .join('<span class="arrow">→</span>')
+    + '<span style="margin-left:6px">same 80M net, later training stage — run a '
+    + '<b>copy test</b> on one, switch, re-run.</span>';
+  box.innerHTML = MODELS.map((m,i) =>
+    `<button data-id="${esc(m.id)}" class="mbtn ${m.id===MODEL?'mon':''}">`
+    + `<span class="mver">v${i+1}</span><span>${esc(m.label)}</span></button>`
   ).join('');
   box.querySelectorAll('button').forEach(b=>b.onclick=()=>{
     MODEL = b.dataset.id;
@@ -227,6 +260,17 @@ function renderModels(){
   });
   const cur = MODELS.find(x=>x.id===MODEL);
   $('#modeldesc').textContent = cur && cur.description ? cur.description : '';
+  $('#modeldl').innerHTML = MODELS.map((m,i) =>
+    `<a class="dlbtn" href="/api/models/${esc(m.id)}/download" download>`
+    + `⬇ <span class="mver">v${i+1}</span> .safetensors`
+    + (m.size?` <span class="sz">${fmtSize(m.size)}</span>`:'') + `</a>`
+  ).join('');
+}
+
+function fmtSize(n){
+  if(!n) return '';
+  const mb = n/1048576;
+  return mb >= 1024 ? (mb/1024).toFixed(2)+' GB' : Math.round(mb)+' MB';
 }
 
 async function meta(){
@@ -237,8 +281,16 @@ async function meta(){
   MODELS = d.models || [];
   MODEL = d.active_id || (MODELS[0] && MODELS[0].id) || null;
   renderModels();
-  SCEN = d.scenarios;
-  $('#scen').innerHTML = SCEN.map((s,i)=>`<button data-i="${i}">${s.label}</button>`).join('');
+  SCEN = d.scenarios || [];
+  const idx = SCEN.map((s,i)=>({s,i}));
+  const starters = idx.filter(x => (x.s.group||'starter') !== 'copy');
+  const copies   = idx.filter(x => x.s.group === 'copy');
+  let sh = starters.map(x=>`<button data-i="${x.i}">${esc(x.s.label)}</button>`).join('');
+  if(copies.length){
+    sh += `<div class="copyhdr">🎯 copy tests — same job on each grot, compare the digits</div>`;
+    sh += copies.map(x=>`<button data-i="${x.i}" class="copybtn">${esc(x.s.label)}</button>`).join('');
+  }
+  $('#scen').innerHTML = sh;
   $('#scen').querySelectorAll('button').forEach(b=>b.onclick=()=>{
     const s = SCEN[+b.dataset.i]; $('#msg').value = s.prompt; run(s.seed);
   });
@@ -286,7 +338,8 @@ function render(d){
   let h = '';
   const tries = d.attempts>1 ? ` (after ${d.attempts} tries)` : '';
   const meta = `${d.n_tokens} tokens · ${esc(d.stop_reason)}${tries}`;
-  h += `<div class="think">grot's full output <span class="muted">— ${meta}</span></div>`;
+  const who = d.model ? `<span class="whochip">${esc(d.model)}</span>` : '';
+  h += `<div class="think">${who}grot's full output <span class="muted">— ${meta}</span></div>`;
   h += `<div class="saidtabs">
     <button class="stab on" data-m="clean" onclick="setSaid('clean')">clean</button>
     <button class="stab" data-m="raw" onclick="setSaid('raw')">raw (tokens)</button>
