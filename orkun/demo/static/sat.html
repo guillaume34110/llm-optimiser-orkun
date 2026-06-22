@@ -47,6 +47,15 @@
   .keys{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;font-size:13px}
   .keys span{background:#0c1207;border:1px solid var(--metal);border-radius:4px;padding:5px 9px}
   .keys b{color:var(--ork2)}
+  .diag{display:flex;gap:16px;flex-wrap:wrap;margin-top:14px}
+  .diag .col{flex:1;min-width:236px;text-align:center;background:#0c1207;border:1px solid var(--metal);
+    border-radius:6px;padding:10px 10px 12px}
+  .diag svg{width:100%;height:auto;max-width:340px}
+  .diag .tt{font-family:ui-monospace,Menlo,monospace;color:var(--bone);font-size:15px;margin-bottom:2px}
+  .diag .cap{font-size:12.5px;color:#9bbf6f;line-height:1.55;margin-top:6px}
+  .diag .cap b{color:var(--ork2)}
+  .lead{color:#9bbf6f;font-size:14px;line-height:1.6;margin:0 0 4px}
+  .lead b{color:var(--ork2)}
   .ctl{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
   .seg{display:inline-flex;border:1px solid var(--metal);border-radius:5px;overflow:hidden}
   .seg button{cursor:pointer;background:#1a2810;color:var(--ink);border:0;border-left:1px solid var(--metal);
@@ -165,6 +174,64 @@
         exactement l'axe sur lequel le modèle 80M s'entraîne en self-play. À toi de jouer&nbsp;:
         devine, puis compare-toi à grot. Le hasard plafonne à <b>50 %</b>.
       </p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Comprendre en un coup d'œil</h2>
+    <p class="lead">
+      Une formule = un petit <b>circuit</b>. Un <b>générateur ⚡</b> à gauche, des <b>interrupteurs</b>
+      (un par lettre) au milieu, une <b>ampoule 💡</b> à droite. <b>ET (∧)</b> = interrupteurs en
+      <b>série</b> : le courant doit <b>tous</b> les traverser. <b>OU (∨)</b> = en <b>parallèle</b> :
+      un seul fermé suffit. <b>¬</b> inverse l'interrupteur. <b>Allumer l'ampoule = satisfiable.</b>
+    </p>
+    <div class="diag">
+      <div class="col">
+        <div class="tt">(A) ∧ (B)</div>
+        <svg viewBox="0 0 360 116" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+          <defs><filter id="glowS" x="-90%" y="-90%" width="280%" height="280%">
+            <feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+          <line x1="48" y1="58" x2="120" y2="58" stroke="#a6ff2e" stroke-width="4" stroke-linecap="round"/>
+          <line x1="160" y1="58" x2="224" y2="58" stroke="#a6ff2e" stroke-width="4" stroke-linecap="round"/>
+          <line x1="264" y1="58" x2="312" y2="58" stroke="#a6ff2e" stroke-width="4" stroke-linecap="round"/>
+          <circle cx="26" cy="58" r="20" fill="#10180a" stroke="#a6ff2e" stroke-width="3"/>
+          <text x="26" y="65" text-anchor="middle" font-size="19">⚡</text>
+          <circle cx="120" cy="58" r="3.5" fill="#a6ff2e"/><circle cx="160" cy="58" r="3.5" fill="#a6ff2e"/>
+          <line x1="120" y1="58" x2="160" y2="58" stroke="#a6ff2e" stroke-width="4" stroke-linecap="round"/>
+          <text x="140" y="33" text-anchor="middle" font-size="15" font-weight="700" fill="#d9f2c0">A</text>
+          <text x="140" y="84" text-anchor="middle" font-size="11" fill="#7d975a">Vrai · fermé</text>
+          <circle cx="224" cy="58" r="3.5" fill="#a6ff2e"/><circle cx="264" cy="58" r="3.5" fill="#a6ff2e"/>
+          <line x1="224" y1="58" x2="264" y2="58" stroke="#a6ff2e" stroke-width="4" stroke-linecap="round"/>
+          <text x="244" y="33" text-anchor="middle" font-size="15" font-weight="700" fill="#d9f2c0">B</text>
+          <text x="244" y="84" text-anchor="middle" font-size="11" fill="#7d975a">Vrai · fermé</text>
+          <circle cx="334" cy="58" r="17" fill="#fff7b0" stroke="#a6ff2e" stroke-width="3" filter="url(#glowS)"/>
+          <text x="334" y="65" text-anchor="middle" font-size="18">💡</text>
+        </svg>
+        <div class="cap">A=Vrai et B=Vrai → le courant traverse tout, l'ampoule s'allume.
+          Il existe un réglage qui marche ⇒ <b>satisfiable</b>.</div>
+      </div>
+      <div class="col">
+        <div class="tt">(A) ∧ (¬A)</div>
+        <svg viewBox="0 0 360 116" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+          <line x1="48" y1="58" x2="120" y2="58" stroke="#a6ff2e" stroke-width="4" stroke-linecap="round"/>
+          <line x1="160" y1="58" x2="224" y2="58" stroke="#a6ff2e" stroke-width="4" stroke-linecap="round"/>
+          <line x1="264" y1="58" x2="312" y2="58" stroke="#2c3a18" stroke-width="4" stroke-linecap="round"/>
+          <circle cx="26" cy="58" r="20" fill="#10180a" stroke="#a6ff2e" stroke-width="3"/>
+          <text x="26" y="65" text-anchor="middle" font-size="19">⚡</text>
+          <circle cx="120" cy="58" r="3.5" fill="#a6ff2e"/><circle cx="160" cy="58" r="3.5" fill="#a6ff2e"/>
+          <line x1="120" y1="58" x2="160" y2="58" stroke="#a6ff2e" stroke-width="4" stroke-linecap="round"/>
+          <text x="140" y="33" text-anchor="middle" font-size="15" font-weight="700" fill="#d9f2c0">A</text>
+          <text x="140" y="84" text-anchor="middle" font-size="11" fill="#7d975a">Vrai · fermé</text>
+          <circle cx="224" cy="58" r="3.5" fill="#a6ff2e"/><circle cx="264" cy="58" r="3.5" fill="#2c3a18"/>
+          <line x1="224" y1="58" x2="252" y2="42" stroke="#2c3a18" stroke-width="4" stroke-linecap="round"/>
+          <text x="244" y="33" text-anchor="middle" font-size="15" font-weight="700" fill="#d9f2c0">¬A</text>
+          <text x="244" y="84" text-anchor="middle" font-size="11" fill="#c2451f">forcément ouvert</text>
+          <circle cx="334" cy="58" r="17" fill="#161f0d" stroke="#6f8f3a" stroke-width="3"/>
+          <text x="334" y="65" text-anchor="middle" font-size="18" fill="#7d975a">○</text>
+        </svg>
+        <div class="cap">Si A=Vrai alors ¬A est ouvert (et inversement) : impossible de fermer les deux.
+          Le courant bloque <b>toujours</b>, l'ampoule reste morte ⇒ <b>impossible</b>.</div>
+      </div>
     </div>
   </div>
 
