@@ -67,9 +67,37 @@
   .mver{font-size:10px;font-weight:800;letter-spacing:.5px;background:#0c1207;
     border:1px solid var(--metal);color:var(--ork2);border-radius:3px;padding:1px 6px}
   .scen button.mon .mver{border-color:#0c1207;color:#0c1207;background:rgba(12,18,7,.18)}
-  .mprog{display:flex;align-items:center;gap:8px;color:#9bbf6f;font-size:12px;margin:2px 0 12px;
-    letter-spacing:.5px}
+  .mprog{display:flex;align-items:center;gap:8px;color:#9bbf6f;font-size:12px;margin:2px 0 14px;
+    letter-spacing:.5px;justify-content:center;text-align:center}
   .mprog .arrow{color:var(--ork2);font-weight:800}
+  /* podium — the 3 grots as a level-up progression (v1 -> v2 -> v3) */
+  .podium{display:flex;justify-content:center;align-items:flex-end;gap:clamp(6px,2.5vw,20px);
+    margin:8px 0 0;flex-wrap:nowrap}
+  .gstep{display:flex;flex-direction:column;align-items:center;cursor:pointer;flex:1 1 0;
+    max-width:170px;min-width:0;transition:.15s;-webkit-tap-highlight-color:transparent}
+  .gstep:hover{transform:translateY(-3px)}
+  .gstep .crown{font-size:16px;height:19px;line-height:1;margin-bottom:1px;opacity:0;transition:.18s}
+  .gstep .av{height:auto;display:block;margin-bottom:5px;opacity:.6;transition:.18s;
+    filter:drop-shadow(0 4px 7px rgba(0,0,0,.5)) grayscale(.35)}
+  .gstep .gname{font-size:11px;color:#8fa86a;text-align:center;line-height:1.25;
+    margin-bottom:7px;min-height:2.5em;display:flex;align-items:center;letter-spacing:.2px}
+  .plinth{width:100%;border-radius:4px 4px 0 0;display:flex;align-items:center;justify-content:center;
+    background:linear-gradient(180deg,#2a3a18,#16210f);border:2px solid var(--metal);border-bottom:0;
+    box-shadow:inset 0 2px 0 rgba(255,255,255,.05);transition:.18s}
+  .plinth .pv{font-size:clamp(16px,4.5vw,26px);font-weight:900;letter-spacing:1px;color:#6f8a4d;
+    text-shadow:0 1px 0 #0c1207;transition:.18s}
+  .gstep.on .av{opacity:1;filter:drop-shadow(0 4px 8px rgba(0,0,0,.5)) drop-shadow(0 0 16px rgba(166,255,46,.55))}
+  .gstep.on .crown{opacity:1}
+  .gstep.on .gname{color:var(--ork2)}
+  .gstep.on .plinth{background:linear-gradient(180deg,var(--ork),#3c5e16);border-color:var(--ork2);
+    box-shadow:inset 0 2px 0 rgba(255,255,255,.15),0 0 18px rgba(126,192,42,.3)}
+  .gstep.on .plinth .pv{color:#0c1207;text-shadow:0 1px 0 rgba(255,255,255,.25)}
+  .podbase{height:7px;background:linear-gradient(180deg,#3a4a2c,#0c1207);border-radius:0 0 5px 5px;
+    margin:0 auto 12px;max-width:600px;box-shadow:0 7px 16px var(--shadow)}
+  /* explanatory text under the podium — the selected grot's story */
+  .modelstory{background:#0c1207;border:1px solid var(--metal);border-radius:4px;padding:11px 13px}
+  .modelstory .mt{color:var(--ork2);font-weight:700;font-size:14px;margin-bottom:5px;letter-spacing:.3px}
+  .modelstory .md{color:#bcd99a;font-size:13px;line-height:1.55}
   /* download weights — grab any checkpoint as a .safetensors file */
   .dlrow{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
   .dlbtn{display:inline-flex;align-items:center;gap:7px;text-decoration:none;cursor:pointer;
@@ -209,9 +237,13 @@
 
   <div class="card" id="modelcard" style="display:none">
     <h2>Pick a grot · watch it level up</h2>
+    <div class="podium" id="podium"></div>
+    <div class="podbase"></div>
     <div class="mprog" id="mprog"></div>
-    <div class="scen" id="models"></div>
-    <div class="sub" id="modeldesc"></div>
+    <div class="modelstory" id="modelstory">
+      <div class="mt" id="mstoryt"></div>
+      <div class="md" id="mstoryd"></div>
+    </div>
     <div class="dlrow" id="modeldl"></div>
   </div>
 
@@ -236,29 +268,48 @@ const $ = s => document.querySelector(s);
 let SCEN = [];
 let MODELS = [], MODEL = null;
 
+// Pull a short caption from a label: the text in parentheses, else after the last "·".
+function shortTag(label, i){
+  const p = /\(([^)]+)\)/.exec(label || '');
+  if(p) return p[1];
+  const parts = (label || '').split('·');
+  return (parts[parts.length-1] || ('v'+(i+1))).trim();
+}
+
+function paintStory(){
+  const m = MODELS.find(x => x.id === MODEL) || MODELS[0];
+  $('#mstoryt').textContent = m ? m.label : '';
+  $('#mstoryd').textContent = m && m.description ? m.description : '';
+}
+
+function selectModel(id){
+  MODEL = id;
+  $('#podium').querySelectorAll('.gstep')
+    .forEach(s => s.classList.toggle('on', s.dataset.id === MODEL));
+  paintStory();
+}
+
 function renderModels(){
-  const box = $('#models');
+  const box = $('#podium');
   if(MODELS.length <= 1){ $('#modelcard').style.display = 'none'; return; }
   $('#modelcard').style.display = '';
-  // Same 80M net at successive training stages — number them v1, v2, … in manifest order
-  // so the picker reads as a progression, not just a switch.
-  $('#mprog').innerHTML = MODELS
-    .map((m,i)=>`<span class="mver">v${i+1}</span>`)
-    .join('<span class="arrow">→</span>')
-    + '<span style="margin-left:6px">same 80M net, later training stage — run a '
-    + '<b>copy test</b> on one, switch, re-run.</span>';
-  box.innerHTML = MODELS.map((m,i) =>
-    `<button data-id="${esc(m.id)}" class="mbtn ${m.id===MODEL?'mon':''}">`
-    + `<span class="mver">v${i+1}</span><span>${esc(m.label)}</span></button>`
-  ).join('');
-  box.querySelectorAll('button').forEach(b=>b.onclick=()=>{
-    MODEL = b.dataset.id;
-    box.querySelectorAll('button').forEach(x=>x.classList.toggle('mon', x.dataset.id===MODEL));
-    const m = MODELS.find(x=>x.id===MODEL);
-    $('#modeldesc').textContent = m && m.description ? m.description : '';
-  });
-  const cur = MODELS.find(x=>x.id===MODEL);
-  $('#modeldesc').textContent = cur && cur.description ? cur.description : '';
+  // Each grot stands on a taller plinth than the last → the podium reads as a
+  // level-up progression (v1 → v2 → v3), not just a switch. Same 80M net throughout.
+  box.innerHTML = MODELS.map((m,i) => {
+    const rank = Math.min(i, 4);
+    const h  = 52 + rank * 34;            // ascending plinth height (px)
+    const av = 60 + rank * 16;            // avatar grows with the level (px)
+    return `<div class="gstep ${m.id===MODEL?'on':''}" data-id="${esc(m.id)}" title="${esc(m.label)}">
+      <div class="crown">👑</div>
+      <svg class="av" style="width:${av}px" viewBox="0 0 240 240"><use href="#grot"/></svg>
+      <div class="gname">${esc(shortTag(m.label, i))}</div>
+      <div class="plinth" style="height:${h}px"><span class="pv">v${i+1}</span></div>
+    </div>`;
+  }).join('');
+  box.querySelectorAll('.gstep').forEach(s => s.onclick = () => selectModel(s.dataset.id));
+  $('#mprog').innerHTML = '<span class="arrow">↗</span> same 80M net, three training '
+    + 'stages — tap a grot to pick it, then give it a job below.';
+  paintStory();
   $('#modeldl').innerHTML = MODELS.map((m,i) =>
     `<a class="dlbtn" href="/api/models/${esc(m.id)}/download" download>`
     + `⬇ <span class="mver">v${i+1}</span> .safetensors`
