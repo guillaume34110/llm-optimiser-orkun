@@ -292,13 +292,11 @@ function labelFR(lab){ return lab==='S' ? 'Satisfiable' : lab==='U' ? 'Impossibl
 async function meta(){
   try{
     const d = await (await fetch('/api/meta')).json();
-    MODELS = d.models || [];
-    MODEL = d.active_id || (MODELS[0] && MODELS[0].id) || null;
-    if(MODELS.length > 1){
-      $('#modwrap').style.display = ''; const sel = $('#model'); sel.style.display = '';
-      sel.innerHTML = MODELS.map((m,i)=>`<option value="${esc(m.id)}" ${m.id===MODEL?'selected':''}>v${i+1} · ${esc(m.label)}</option>`).join('');
-      sel.onchange = ()=>{ MODEL = sel.value; };
-    }
+    // Page booléen = uniquement grot v3 (self-play SAT). Pas de sélecteur.
+    const all = d.models || [];
+    MODELS = all.filter(m => m.id === 'v3');
+    if(!MODELS.length) MODELS = all;          // fallback si v3 pas déployé
+    MODEL = (MODELS[0] && MODELS[0].id) || null;
   }catch(e){/* no meta -> server picks default model */}
 }
 
