@@ -222,44 +222,77 @@ class Engine:
                 "calls": rendered, "n_calls": len(rendered), "attempts": attempts,
                 "fs_before": fs_before, "fs_after": fs_after}
 
-    def chess_move(self, fen: str, legal: list[str], history: list[str],
-                   samples: int, temperature: float) -> dict:
-        """Ask grot for a move in the SAME format the chess GoalFamily trains on.
+    def sat_batch(self, difficulty: int, seed: int, samples: int,
+                  temperature: float) -> dict:
+        """Draw one SAT-batch task and have grot decide each formula — the copy-free axis.
 
-        The client (chess.js in the browser) owns legality and sends the exact legal
-        SAN list — grot only selects one. Greedy first, then a few sampled retries
-        until the reply yields a legal move; on no legal move we play a random legal
-        move so the board never stalls. No sandbox: we only need the move token, which
-        `_match_chess_move` extracts from grot's `ANSWER=`/`py_run` output or bare SAN."""
+        This is the educational/playful counterpart of the self-play training: the
+        ``sat_batch`` GoalFamily emits a batch of tiny boolean (CNF) formulas; grot must
+        print ``ANSWER<i>=S`` (satisfiable) or ``ANSWER<i>=U`` (unsatisfiable) for each.
+        The answer is a *decided bit*, never a substring of the prompt (copy-free) — so a
+        constant guess caps at 0.5 and only real reasoning climbs above it.
+
+        We run grot exactly like ``run`` (greedy then sampled retries, executed in a real
+        sandbox), parse its ``ANSWER<i>=`` lines from stdout, and grade each formula
+        against the brute-force ground truth. For each formula we also compute a
+        *witness* (a satisfying assignment, or None when none exists) purely for the page
+        to teach what "satisfiable" means — grot never sees it."""
         import random
+        import re
+        from infer.executors import Sandbox
+        from infer.monkey_wire import parse_calls
+        from orkun.demo.safe_exec import safe_execute as execute
+        from orkun.goals.families import ALL_FAMILIES
         from orkun.policy.sampler import sample as sample_one
-        legal = [m for m in (legal or []) if isinstance(m, str) and m.strip()]
-        if not legal:
-            return {"error": "no legal moves"}
-        fallback = random.choice(legal)
-        hist = " ".join(history or [])
-        prompt = (
-            "You are playing chess. Choose the best legal move for this position.\n"
-            f"FEN: {fen}\n"
-            + (f"Moves so far: {hist}\n" if hist else "")
-            + f"Legal moves (choose one): {', '.join(legal)}\n"
-            "Print ANSWER=<your move in SAN> using python."
-        )
-        wire = f"<|bos|><|user|>{prompt}<|assistant|>"
+
+        difficulty = max(0, min(2, int(difficulty)))
+        fam = next(f for f in ALL_FAMILIES if f.name == "sat_batch")
+        task = fam.sample(random.Random(seed), difficulty)
+        formulas = _parse_sat_task(task)
+
+        wire = f"<|bos|><|user|>{task.prompt}<|assistant|>"
         ids = self.tok.encode(wire, add_bos=False, add_eos=False)
-        chosen, raw, attempts = None, "", 0
+        max_new = 256
+        text, out_ids, attempts = "", [], 0
         for attempt in range(max(1, samples)):
             temp = 0.0 if attempt == 0 else temperature
-            out = sample_one(self.net, ids, max_new=64, temperature=temp,
+            out = sample_one(self.net, ids, max_new=max_new, temperature=temp,
                              top_p=0.95, stop_ids=self.stop_ids, seed=attempt)
-            raw = self._decode(out)
+            text = self._decode(out)
+            out_ids = out
             attempts = attempt + 1
-            chosen = _match_chess_move(raw, legal)
-            if chosen is not None:
+            if parse_calls(text, known_tools=self.ktools):
                 break
-        if chosen is None:
-            return {"move": fallback, "fallback": True, "raw": raw[:160], "attempts": attempts}
-        return {"move": chosen, "fallback": False, "raw": raw[:160], "attempts": attempts}
+        calls = parse_calls(text, known_tools=self.ktools)
+        sb = Sandbox.create(seed=False)
+        stdout = ""
+        try:
+            for c in calls[:16]:
+                stdout += _pretty(execute(c.name, c.args, sb)) + "\n"
+        finally:
+            sb.cleanup()
+        # grot's decided labels (first one wins if it ever repeats an index).
+        ans: dict[int, str] = {}
+        for m in re.finditer(r"ANSWER(\d+)=([SU])", stdout):
+            i = int(m.group(1))
+            ans.setdefault(i, m.group(2))
+        n_correct = 0
+        for f in formulas:
+            f["model"] = ans.get(f["i"], "?")
+            f["correct"] = f["model"] == f["gold"]
+            n_correct += int(f["correct"])
+        n = len(formulas) or 1
+        return {
+            "difficulty": difficulty,
+            "formulas": formulas,
+            "graded": n_correct / n,
+            "n_correct": n_correct,
+            "n_total": len(formulas),
+            "prompt": task.prompt,
+            "assistant_text": text,
+            "stdout": stdout.strip(),
+            "attempts": attempts,
+        }
 
 
 def _snapshot_fs(root: Path, max_bytes: int = 4000) -> list:
@@ -293,31 +326,71 @@ def _pretty(result: dict) -> str:
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 
-# token shape for a SAN move (cap 7 chars so "ANSWER=" is not greedily merged with
-# the following move — matches the chess family's training output convention).
-_SAN_TOKEN = re.compile(r"[A-Za-z][A-Za-z0-9+#=\-]{0,6}")
+# A literal in the SAT family's rendered text: optional "not " then x<digit>.
+_SAT_LIT = re.compile(r"(not\s+)?x(\d+)")
 
 
-def _match_chess_move(raw: str, legal: list[str]) -> str | None:
-    """Map grot's free-form reply to one legal SAN move, or None.
+def _parse_formula(text: str):
+    """Parse a rendered CNF (e.g. "(x0 or not x1) and (x1)") back into clauses.
 
-    grot is trained (chess GoalFamily) to answer `print('ANSWER=<SAN>')`, but it
-    may also emit the bare move or extra prose. Accept an exact first-line match,
-    then case-insensitive, then scan for the first legal SAN token anywhere — so a
-    `py_run`/`ANSWER=` wrapper still yields the move. Mirrors the progsoft `monkey`
-    matcher; None lets the caller play a fallback legal move (game never stalls)."""
-    if not raw:
+    Returns (clauses, vars) where each clause is a list of (var, neg) literals — the
+    same shape the family builds internally, so we can re-derive truth independently."""
+    clauses: list[list[tuple[int, bool]]] = []
+    variables: set[int] = set()
+    for cm in re.finditer(r"\(([^)]*)\)", text):
+        clause: list[tuple[int, bool]] = []
+        for part in cm.group(1).split(" or "):
+            lm = _SAT_LIT.search(part)
+            if not lm:
+                continue
+            v, neg = int(lm.group(2)), bool(lm.group(1))
+            clause.append((v, neg))
+            variables.add(v)
+        clauses.append(clause)
+    return clauses, variables
+
+
+def _find_witness(clauses, variables) -> str | None:
+    """Brute-force a satisfying assignment (≤3 vars). Returns "x0=T x1=F" or None.
+
+    Same eval convention as the family's `_cnf_sat`: a literal (v, neg) is true iff
+    (assignment != neg). None ⇒ unsatisfiable, which must match the gold label "U"."""
+    vlist = sorted(variables)
+    if not vlist:
         return None
-    legal_ci = {m.lower(): m for m in legal}
-    first_line = raw.strip().strip('."\'` ').split("\n")[0].strip()
-    if first_line in legal:
-        return first_line
-    if first_line.lower() in legal_ci:
-        return legal_ci[first_line.lower()]
-    for tk in _SAN_TOKEN.findall(raw):
-        if tk.lower() in legal_ci:
-            return legal_ci[tk.lower()]
+    for mask in range(1 << len(vlist)):
+        a = {v: bool(mask & (1 << j)) for j, v in enumerate(vlist)}
+        if all(any(a[v] != neg for v, neg in cl) for cl in clauses):
+            return " ".join(f"x{v}={'T' if a[v] else 'F'}" for v in vlist)
     return None
+
+
+def _parse_sat_task(task) -> list:
+    """Turn a SAT-batch Task into render-ready formula rows.
+
+    Gold labels come from the task's `stdout_contains` checks (ANSWER<i>=S/U); the
+    formula text + a teaching witness are derived from the prompt body lines."""
+    gold: dict[int, str] = {}
+    for c in task.checks:
+        if c.get("type") == "stdout_contains":
+            m = re.match(r"ANSWER(\d+)=([SU])", c["substr"])
+            if m:
+                gold[int(m.group(1))] = m.group(2)
+    rows = []
+    for line in task.prompt.splitlines():
+        m = re.match(r"\s*(\d+):\s*(.+)$", line)
+        if not m:
+            continue
+        i, ftext = int(m.group(1)), m.group(2).strip()
+        clauses, variables = _parse_formula(ftext)
+        rows.append({
+            "i": i,
+            "text": ftext,
+            "vars": sorted(variables),
+            "gold": gold.get(i, "?"),
+            "witness": _find_witness(clauses, variables),
+        })
+    return rows
 
 
 class QueueFull(Exception):
@@ -483,7 +556,7 @@ def make_handler(state: AppState):
     import os
     index_html = (_HERE / "static" / "index.html").read_text()
     admin_html = (_HERE / "static" / "admin.html").read_text()
-    chess_html = (_HERE / "static" / "chess.html").read_text()
+    sat_html = (_HERE / "static" / "sat.html").read_text()
     admin_user = _admin_user()
     MAX_UPLOAD = 2 * 1024 * 1024 * 1024  # 2 GB hard cap on the upload body
 
@@ -537,10 +610,10 @@ def make_handler(state: AppState):
                 return self._send(200, index_html, "text/html; charset=utf-8")
             if self.path in ("/admin", "/admin/"):
                 return self._send(200, admin_html, "text/html; charset=utf-8")
-            if self.path in ("/chess", "/chess/"):
-                state.analytics.log("visit_chess", self._client_ip(),
+            if self.path in ("/sat", "/sat/", "/lab", "/lab/"):
+                state.analytics.log("visit_sat", self._client_ip(),
                                     self.headers.get("User-Agent", ""))
-                return self._send(200, chess_html, "text/html; charset=utf-8")
+                return self._send(200, sat_html, "text/html; charset=utf-8")
             if self.path == "/admin/analytics":
                 if not _admin_secret():
                     return self._send(503, json.dumps({"error": "admin disabled (set ADMIN_PASSWORD)"}))
@@ -580,8 +653,8 @@ def make_handler(state: AppState):
                 return self._do_delete()
             if self.path == "/api/run":
                 return self._do_run()
-            if self.path == "/api/chess/move":
-                return self._do_chess_move()
+            if self.path == "/api/sat":
+                return self._do_sat()
             return self._send(404, json.dumps({"error": "not found"}))
 
         def _do_login(self):
@@ -734,7 +807,8 @@ def make_handler(state: AppState):
                     ms=int((time.time() - t0) * 1000), error=str(e)[:200])
                 return self._send(500, json.dumps({"error": str(e)}))
 
-        def _do_chess_move(self):
+        def _do_sat(self):
+            import random
             import time
             t0 = time.time()
             model_id = ""
@@ -746,20 +820,24 @@ def make_handler(state: AppState):
                 if not model_id:
                     return self._send(503, json.dumps({
                         "error": "no model available — admin must upload weights at /admin"}))
+                # A fresh seed per request → a new batch each time, unless the client
+                # pins one (so a shareable batch is reproducible).
+                seed = req.get("seed")
+                seed = int(seed) if seed is not None else random.randrange(1 << 30)
                 with state.queue.slot():
                     engine = state.get_engine(model_id)
-                    result = engine.chess_move(
-                        fen=req.get("fen", ""),
-                        legal=req.get("legal_moves", []),
-                        history=req.get("history", []),
+                    result = engine.sat_batch(
+                        difficulty=int(req.get("difficulty", 0)),
+                        seed=seed,
                         samples=int(req.get("samples", 6)),
                         temperature=float(req.get("temperature", 0.45)),
                     )
                 result["model"] = model_id
+                result["seed"] = seed
                 state.analytics.log(
-                    "chess_move", self._client_ip(), self.headers.get("User-Agent", ""),
-                    model=model_id, ok=not result.get("fallback", True),
-                    ms=int((time.time() - t0) * 1000))
+                    "sat", self._client_ip(), self.headers.get("User-Agent", ""),
+                    model=model_id, difficulty=result["difficulty"],
+                    graded=result["graded"], ms=int((time.time() - t0) * 1000))
                 return self._send(200, json.dumps(result))
             except (QueueFull, QueueTimeout):
                 return self._send(503, json.dumps({

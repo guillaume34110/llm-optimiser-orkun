@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WAAAGH · Labo SAT</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 240'><rect width='240' height='240' rx='30' fill='%230d130c'/><path d='M64,64 Q66,40 96,38 L144,38 Q176,40 178,64 L182,150 Q182,178 150,186 L90,186 Q58,178 58,150 Z' fill='%237ec02a'/><path d='M70,98 L118,88 L172,98 L166,114 L118,104 L76,114 Z' fill='%233a5915'/><path d='M80,106 L106,114 L101,128 L78,120 Z' fill='%23a6ff2e'/><path d='M160,106 L134,114 L139,128 L162,120 Z' fill='%23a6ff2e'/><path d='M92,156 Q88,128 100,124 Q106,128 104,156 Z' fill='%23e8e2c8'/><path d='M148,156 Q152,128 140,124 Q134,128 136,156 Z' fill='%23e8e2c8'/></svg>">
+<style>
+  :root{
+    --bg:#0d130c; --panel:#16210f; --panel2:#1d2b13; --ink:#d9f2c0;
+    --ork:#7ec02a; --ork2:#a6ff2e; --rust:#c2451f; --bone:#e8e2c8;
+    --metal:#3a4a2c; --shadow:rgba(0,0,0,.55); --good:#a6ff2e; --bad:#ff8a5c;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;background:
+      repeating-linear-gradient(135deg, transparent 0 24px, rgba(126,192,42,.02) 24px 48px),
+      radial-gradient(120% 80% at 50% -10%, #1c2a12 0%, var(--bg) 60%) fixed;
+    color:var(--ink);font-family:"Trebuchet MS",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .mascot{width:clamp(52px,12vw,92px);height:auto;display:block;margin:0 auto 6px;
+    filter:drop-shadow(0 5px 10px rgba(0,0,0,.55)) drop-shadow(0 0 14px rgba(166,255,46,.22))}
+  .bgmascot{position:fixed;right:-6vw;bottom:-8vh;width:64vmin;height:64vmin;
+    opacity:.05;z-index:-1;pointer-events:none;transform:rotate(-6deg)}
+  .wrap{max-width:880px;margin:0 auto;padding:22px 16px 60px}
+  header{text-align:center;margin:8px 0 18px}
+  h1{
+    font-size:clamp(30px,6.5vw,56px);margin:0;letter-spacing:2px;font-weight:900;
+    color:var(--ork2);text-transform:uppercase;
+    text-shadow:0 3px 0 #2a3a18, 0 6px 14px var(--shadow), 0 0 22px rgba(166,255,46,.25);
+    transform:skewX(-5deg);
+  }
+  h1 .tusk{color:var(--rust)}
+  .tag{color:#9bbf6f;font-size:13px;letter-spacing:2px;text-transform:uppercase;margin-top:6px}
+  .tag a{color:var(--ork)}
+  .card{
+    background:linear-gradient(180deg,var(--panel2),var(--panel));
+    border:2px solid var(--metal);border-top-color:#4d6336;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.05), 0 6px 18px var(--shadow);
+    padding:16px;margin:14px 0;
+    clip-path:polygon(0 6px,6px 0,calc(100% - 10px) 0,100% 8px,100% calc(100% - 6px),calc(100% - 6px) 100%,10px 100%,0 calc(100% - 8px));
+  }
+  .card h2{margin:0 0 10px;font-size:13px;letter-spacing:2px;text-transform:uppercase;color:var(--ork)}
+  .sub{color:#9bbf6f;font-size:14px;line-height:1.6}
+  .sub b{color:var(--ork2)} .sub code{color:var(--bone);font-family:ui-monospace,Menlo,monospace}
+  .keys{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px;font-size:13px}
+  .keys span{background:#0c1207;border:1px solid var(--metal);border-radius:4px;padding:5px 9px}
+  .keys b{color:var(--ork2)}
+  .ctl{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+  .seg{display:inline-flex;border:1px solid var(--metal);border-radius:5px;overflow:hidden}
+  .seg button{cursor:pointer;background:#1a2810;color:var(--ink);border:0;border-left:1px solid var(--metal);
+    padding:8px 12px;font-size:13px;font-family:inherit;transition:.12s}
+  .seg button:first-child{border-left:0}
+  .seg button:hover{color:var(--ork2)}
+  .seg button.on{background:linear-gradient(180deg,var(--ork),#5d9320);color:#0c1207;font-weight:800}
+  .lbl{color:#7d975a;font-size:12px;letter-spacing:1px;text-transform:uppercase;margin-right:2px}
+  select{background:#0c1207;color:var(--ink);border:1px solid var(--metal);border-radius:4px;
+    padding:8px 10px;font-size:13px;font-family:inherit}
+  .go{
+    cursor:pointer;font-weight:900;letter-spacing:1px;text-transform:uppercase;
+    background:linear-gradient(180deg,var(--ork),#5d9320);color:#0c1207;border:0;
+    padding:10px 20px;border-radius:4px;font-size:14px;
+    box-shadow:0 4px 0 #3c5e16, 0 6px 12px var(--shadow);transition:.1s}
+  .go:active{transform:translateY(3px);box-shadow:0 1px 0 #3c5e16}
+  .go:disabled{opacity:.55;cursor:wait}
+  .go.reveal{background:linear-gradient(180deg,#d98a2a,#a8631a);box-shadow:0 4px 0 #6e3f10,0 6px 12px var(--shadow)}
+  .hint{color:#7d975a;font-size:12px;margin-top:8px}
+  /* formula rows */
+  .frm{border:1px solid var(--metal);border-radius:6px;margin:12px 0;background:#0f1709;overflow:hidden}
+  .frm.right{border-color:var(--good);box-shadow:0 0 0 1px rgba(166,255,46,.25)}
+  .frm.wrong{border-color:var(--rust);box-shadow:0 0 0 1px rgba(194,69,31,.25)}
+  .frm .top{display:flex;align-items:center;gap:12px;padding:11px 14px;flex-wrap:wrap}
+  .fnum{font-weight:900;color:var(--ork2);font-size:13px;letter-spacing:1px;
+    background:#16210f;border:1px solid var(--metal);border-radius:4px;padding:3px 9px}
+  .expr{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:17px;color:var(--bone);flex:1;
+    min-width:200px;line-height:1.5}
+  .expr .v{color:var(--ork2);font-weight:700}
+  .expr .op{color:#7fa353}
+  .expr .neg{color:var(--rust)}
+  .guess{display:flex;gap:6px}
+  .guess button{cursor:pointer;background:#1a2810;color:var(--ink);border:1px solid var(--metal);
+    border-radius:4px;padding:7px 11px;font-size:12px;font-weight:700;transition:.12s;font-family:inherit}
+  .guess button:hover{border-color:var(--ork);color:var(--ork2)}
+  .guess button.pick{background:linear-gradient(180deg,var(--ork),#5d9320);color:#0c1207;border-color:var(--ork2)}
+  .verdict{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .pill{font-size:11px;font-weight:800;letter-spacing:.5px;padding:3px 8px;border-radius:4px;
+    border:1px solid var(--metal);background:#0c1207}
+  .pill.t-good{color:var(--good);border-color:var(--good)}
+  .pill.t-bad{color:var(--bad);border-color:var(--bad)}
+  .pill.t-mut{color:#8fa86a}
+  .pill .who{opacity:.7;font-weight:600;margin-right:4px}
+  .why{padding:0 14px 12px;color:#9bbf6f;font-size:13px;line-height:1.5}
+  .why .wit{font-family:ui-monospace,Menlo,monospace;color:var(--bone)}
+  /* scoreboard */
+  .score{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:4px}
+  .sc{background:#0c1207;border:1px solid var(--metal);border-radius:6px;padding:12px;text-align:center}
+  .sc .nm{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#7d975a}
+  .sc .v{font-size:30px;font-weight:900;margin:4px 0}
+  .sc.me .v{color:var(--ork2)} .sc.grot .v{color:var(--bone)} .sc.rng .v{color:#7d975a}
+  .sc .pct{font-size:12px;color:#7d975a}
+  .winline{text-align:center;font-weight:900;letter-spacing:1px;text-transform:uppercase;
+    margin-top:12px;font-size:16px}
+  .winline.me{color:var(--ork2);text-shadow:0 0 14px rgba(166,255,46,.4)}
+  .winline.grot{color:var(--bad)}
+  .winline.tie{color:#9bbf6f}
+  details{margin-top:12px;border:1px dashed var(--metal);border-radius:5px;background:#0a0f06}
+  summary{cursor:pointer;padding:8px 12px;font-size:12px;color:#8fa86a;letter-spacing:.5px}
+  details pre{margin:0;padding:0 12px 12px;font-family:ui-monospace,Menlo,monospace;font-size:12px;
+    color:#cfe6ac;white-space:pre-wrap;word-break:break-word}
+  .note{font-size:12px;color:#7d975a;text-align:center;margin-top:26px;line-height:1.6}
+  .note a{color:var(--ork)}
+  .spin{display:inline-block;animation:wob 1s infinite}
+  @keyframes wob{0%,100%{transform:rotate(-8deg)}50%{transform:rotate(8deg)}}
+  .err{color:var(--bad);text-align:center;font-weight:700;padding:10px}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="grot" viewBox="0 0 240 240">
+    <path d="M58,96 L24,66 L30,128 L66,128 Z" fill="#5d9320" stroke="#3a5915" stroke-width="3"/>
+    <path d="M182,96 L216,66 L210,128 L174,128 Z" fill="#5d9320" stroke="#3a5915" stroke-width="3"/>
+    <path d="M64,64 Q66,40 96,38 L144,38 Q176,40 178,64 L182,148 Q182,176 150,184 L90,184 Q58,176 58,148 Z"
+          fill="#7ec02a" stroke="#3a5915" stroke-width="4"/>
+    <path d="M64,64 Q66,40 96,38 L144,38 Q176,40 178,64 L176,92 L64,92 Z" fill="#8fd02f" opacity=".5"/>
+    <path d="M70,96 L118,86 L172,96 L166,112 L118,102 L76,112 Z" fill="#3a5915"/>
+    <path d="M80,104 L106,112 L101,126 L78,118 Z" fill="#a6ff2e"/>
+    <path d="M160,104 L134,112 L139,126 L162,118 Z" fill="#a6ff2e"/>
+    <circle cx="92" cy="116" r="4.5" fill="#0c1207"/>
+    <circle cx="148" cy="116" r="4.5" fill="#0c1207"/>
+    <path d="M150,90 L166,128" stroke="#c2451f" stroke-width="4" fill="none" stroke-linecap="round"/>
+    <path d="M114,122 L126,122 L120,138 Z" fill="#3a5915"/>
+    <path d="M74,150 L166,150 L170,168 Q150,188 120,190 Q90,188 70,168 Z" fill="#5d9320" stroke="#3a5915" stroke-width="4"/>
+    <path d="M90,154 Q86,128 98,124 Q104,128 102,154 Z" fill="#e8e2c8" stroke="#3a5915" stroke-width="2.5"/>
+    <path d="M150,154 Q154,128 142,124 Q136,128 138,154 Z" fill="#e8e2c8" stroke="#3a5915" stroke-width="2.5"/>
+    <circle cx="120" cy="55" r="6" fill="#3a4a2c" stroke="#2a3a18" stroke-width="2"/>
+  </symbol>
+</svg>
+<svg class="bgmascot" viewBox="0 0 240 240"><use href="#grot"/></svg>
+
+<div class="wrap">
+  <header>
+    <svg class="mascot" viewBox="0 0 240 240"><use href="#grot"/></svg>
+    <h1>LE LABO<span class="tusk">·</span>SAT</h1>
+    <div class="tag">le casse-tête booléen que grot apprend tout seul</div>
+    <div class="tag" style="margin-top:8px">⬅ <a href="/">retour aux toolz de grot</a></div>
+  </header>
+
+  <div class="card">
+    <h2>C'est quoi le jeu ?</h2>
+    <div class="sub">
+      On te donne des petites <b>formules logiques</b>. Chaque lettre (<code>A</code>, <code>B</code>,
+      <code>C</code>) est un interrupteur : tu peux le mettre sur <b>Vrai</b> ou <b>Faux</b>.
+      La formule est <b>satisfiable</b> s'il existe <i>au moins une</i> façon de régler les
+      interrupteurs qui rend le tout vrai. Sinon, elle est <b>impossible</b> (une contradiction).
+      <div class="keys">
+        <span><b>∧</b> ET — tout doit être vrai</span>
+        <span><b>∨</b> OU — au moins un vrai suffit</span>
+        <span><b>¬</b> NON — inverse l'interrupteur</span>
+      </div>
+      <p style="margin:12px 0 0">
+        Pourquoi ça compte&nbsp;? La réponse (<b>satisfiable</b> ou <b>impossible</b>) n'est jamais
+        écrite dans l'énoncé&nbsp;: grot ne peut pas la recopier, il doit la <b>raisonner</b>. C'est
+        exactement l'axe sur lequel le modèle 80M s'entraîne en self-play. À toi de jouer&nbsp;:
+        devine, puis compare-toi à grot. Le hasard plafonne à <b>50 %</b>.
+      </p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Lance une manche</h2>
+    <div class="ctl">
+      <span class="lbl">Difficulté</span>
+      <div class="seg" id="diff">
+        <button data-d="0" class="on">Marmot · 4 formules</button>
+        <button data-d="1">Guerrier · 6</button>
+        <button data-d="2">Boss · 8</button>
+      </div>
+      <span class="lbl" id="modwrap" style="display:none">Grot</span>
+      <select id="model" style="display:none"></select>
+      <button class="go" id="new">Nouveau lot ⚡</button>
+    </div>
+    <div class="hint">Devine chaque formule, puis révèle pour voir la vérité et la réponse de grot.</div>
+  </div>
+
+  <div id="board"></div>
+  <div id="foot"></div>
+
+  <div class="note">
+    Architecture nGPT maison · servie en direct par grot (aucune triche).<br>
+    Projet de recherche Orkun / Orkish · <a href="/">démo des outils</a>.
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let MODELS = [], MODEL = null, DIFF = 0;
+let BATCH = null, GUESS = {}, REVEALED = false;
+
+function esc(x){return (x??'').toString().replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));}
+
+// x0 -> A, x1 -> B … (friendlier than x-indices for a lay audience)
+function letter(n){ return String.fromCharCode(65 + n); }
+
+// Render "(x0 or not x1) and (x1)" as colourful "(A ∨ ¬B) ∧ (B)".
+function prettyExpr(text){
+  let h = esc(text);
+  h = h.replace(/not\s+x(\d+)/g, (_,n)=>`<span class="neg">¬</span><span class="v">${letter(+n)}</span>`);
+  h = h.replace(/x(\d+)/g, (_,n)=>`<span class="v">${letter(+n)}</span>`);
+  h = h.replace(/ and /g, ' <span class="op">∧</span> ');
+  h = h.replace(/ or /g, ' <span class="op">∨</span> ');
+  return h;
+}
+// "x0=T x1=F" -> "A=Vrai, B=Faux"
+function prettyWitness(w){
+  if(!w) return '';
+  return w.split(' ').map(p=>{
+    const m = p.match(/x(\d+)=([TF])/); if(!m) return p;
+    return `${letter(+m[1])}=${m[2]==='T'?'Vrai':'Faux'}`;
+  }).join(', ');
+}
+function labelFR(lab){ return lab==='S' ? 'Satisfiable' : lab==='U' ? 'Impossible' : '?'; }
+
+async function meta(){
+  try{
+    const d = await (await fetch('/api/meta')).json();
+    MODELS = d.models || [];
+    MODEL = d.active_id || (MODELS[0] && MODELS[0].id) || null;
+    if(MODELS.length > 1){
+      $('#modwrap').style.display = ''; const sel = $('#model'); sel.style.display = '';
+      sel.innerHTML = MODELS.map((m,i)=>`<option value="${esc(m.id)}" ${m.id===MODEL?'selected':''}>v${i+1} · ${esc(m.label)}</option>`).join('');
+      sel.onchange = ()=>{ MODEL = sel.value; };
+    }
+  }catch(e){/* no meta -> server picks default model */}
+}
+
+$('#diff').querySelectorAll('button').forEach(b=>b.onclick=()=>{
+  DIFF = +b.dataset.d;
+  $('#diff').querySelectorAll('button').forEach(x=>x.classList.toggle('on', x===b));
+});
+
+async function newBatch(){
+  const btn = $('#new'); btn.disabled = true;
+  $('#board').innerHTML = `<div class="card"><div class="sub"><span class="spin">⚙</span> grot rumine les formules…</div></div>`;
+  $('#foot').innerHTML = '';
+  GUESS = {}; REVEALED = false;
+  try{
+    const r = await fetch('/api/sat',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({model:MODEL, difficulty:DIFF, samples:6, temperature:0.45})});
+    const d = await r.json();
+    if(d.error){ $('#board').innerHTML = `<div class="card"><div class="err">krump! ${esc(d.error)}</div></div>`; return; }
+    BATCH = d; renderBoard();
+  }catch(e){ $('#board').innerHTML = `<div class="card"><div class="err">krump! ${esc(e.message)}</div></div>`; }
+  finally{ btn.disabled = false; }
+}
+
+function renderBoard(){
+  let h = '<div class="card"><h2>À toi de deviner</h2>';
+  for(const f of BATCH.formulas){
+    h += `<div class="frm" id="frm${f.i}">
+      <div class="top">
+        <span class="fnum">N°${f.i}</span>
+        <span class="expr">${prettyExpr(f.text)}</span>
+        <span class="guess" data-i="${f.i}">
+          <button data-g="S">Satisfiable ✓</button>
+          <button data-g="U">Impossible ✗</button>
+        </span>
+      </div></div>`;
+  }
+  h += '</div>';
+  h += `<div class="card" style="text-align:center"><button class="go reveal" id="reveal">Révéler & voir grot 🔥</button>
+    <div class="hint">tu peux révéler même sans avoir tout deviné</div></div>`;
+  $('#board').innerHTML = h;
+  $('#board').querySelectorAll('.guess').forEach(g=>{
+    const i = +g.dataset.i;
+    g.querySelectorAll('button').forEach(b=>b.onclick=()=>{
+      if(REVEALED) return;
+      GUESS[i] = b.dataset.g;
+      g.querySelectorAll('button').forEach(x=>x.classList.toggle('pick', x===b));
+    });
+  });
+  $('#reveal').onclick = reveal;
+}
+
+function reveal(){
+  if(REVEALED) return; REVEALED = true;
+  let me = 0, grot = 0, gold_sat = 0;
+  for(const f of BATCH.formulas){
+    if(f.gold === 'S') gold_sat++;
+    const mine = GUESS[f.i];
+    const meRight = mine === f.gold;
+    const grotRight = f.correct;
+    if(meRight) me++;
+    if(grotRight) grot++;
+    const frm = $('#frm'+f.i);
+    frm.classList.add(grotRight ? 'right' : 'wrong');
+    // freeze the guess row into a result row
+    const guess = frm.querySelector('.guess');
+    const truthCls = 't-mut';
+    let pills = `<span class="pill ${truthCls}"><span class="who">vérité</span>${labelFR(f.gold)}</span>`;
+    pills += mine
+      ? `<span class="pill ${meRight?'t-good':'t-bad'}"><span class="who">toi</span>${labelFR(mine)} ${meRight?'✓':'✗'}</span>`
+      : `<span class="pill t-mut"><span class="who">toi</span>passé</span>`;
+    pills += f.model === '?'
+      ? `<span class="pill t-bad"><span class="who">grot</span>muet</span>`
+      : `<span class="pill ${grotRight?'t-good':'t-bad'}"><span class="who">grot</span>${labelFR(f.model)} ${grotRight?'✓':'✗'}</span>`;
+    guess.outerHTML = `<span class="verdict">${pills}</span>`;
+    // teaching line
+    const why = f.gold === 'S'
+      ? `✓ <b>Satisfiable</b> — par exemple <span class="wit">${esc(prettyWitness(f.witness))||'tout à Vrai'}</span> rend la formule vraie.`
+      : `✗ <b>Impossible</b> — aucune combinaison ne marche, les clauses se contredisent.`;
+    frm.insertAdjacentHTML('beforeend', `<div class="why">${why}</div>`);
+  }
+  const n = BATCH.formulas.length;
+  const guessed = Object.keys(GUESS).length;
+  const chance = (n/2);
+  let h = `<div class="card"><h2>Score de la manche</h2>
+    <div class="score">
+      <div class="sc me"><div class="nm">Toi</div><div class="v">${me}<span style="font-size:16px;color:#7d975a">/${n}</span></div>
+        <div class="pct">${guessed<n?(n-guessed)+' passées':'tout deviné'}</div></div>
+      <div class="sc grot"><div class="nm">Grot 80M</div><div class="v">${grot}<span style="font-size:16px;color:#7d975a">/${n}</span></div>
+        <div class="pct">${Math.round(BATCH.graded*100)}% · ${pretty_attempts(BATCH.attempts)}</div></div>
+      <div class="sc rng"><div class="nm">Hasard</div><div class="v">~${chance}<span style="font-size:16px;color:#7d975a">/${n}</span></div>
+        <div class="pct">50 % de réussite</div></div>
+    </div>`;
+  // verdict line: grot vs chance is the real research signal
+  const above = grot > chance;
+  let line;
+  if(grot > me) line = `<div class="winline grot">grot t'a battu — ${grot} contre ${me} 🟢</div>`;
+  else if(me > grot) line = `<div class="winline me">tu bats grot — ${me} contre ${grot} ! 🔥</div>`;
+  else line = `<div class="winline tie">égalité — ${me} partout</div>`;
+  h += line;
+  h += `<div class="hint" style="text-align:center;margin-top:10px">`
+    + (above ? `grot dépasse le hasard (${grot} &gt; ${chance}) → il <b>raisonne</b>, il ne devine pas.`
+             : `ici grot ne dépasse pas le hasard — plus la difficulté monte, plus 80M plafonne.`)
+    + `</div>`;
+  h += `<details><summary>🔍 ce que grot a vraiment écrit (sortie brute, aucune triche)</summary>
+    <pre>${esc(BATCH.stdout)||'(grot n’a rien imprimé)'}</pre></details>`;
+  h += `<div style="text-align:center;margin-top:14px"><button class="go" onclick="newBatch()">Nouveau lot ⚡</button></div>`;
+  h += `</div>`;
+  $('#foot').innerHTML = h;
+  $('#reveal').closest('.card').style.display = 'none';
+  $('#foot').scrollIntoView({behavior:'smooth', block:'start'});
+}
+function pretty_attempts(a){ return a>1 ? a+' essais' : '1er jet'; }
+
+$('#new').onclick = newBatch;
+meta();
+</script>
+</body>
+</html>

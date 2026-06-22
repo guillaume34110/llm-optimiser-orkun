@@ -342,6 +342,100 @@ def _cnf_sat(clauses: list[list[tuple[int, bool]]], k: int) -> bool:
 
 
 @dataclass
+class SatBatchFamily(GoalFamily):
+    """Decide satisfiability for a BATCH of small CNF formulas — the copy-free RLVR target.
+
+    Why a batch of decisions (not the single-formula BoolSatFamily):
+
+    * DENSE reward — one check per formula → ``graded`` = fraction of correct
+      decisions (partial credit), not a binary pass/fail.
+    * UNHACKABLE — labels are balanced ~S/~U, so a constant guess caps at ≈0.5 while
+      only real per-formula reasoning climbs above it.
+    * COPY-FREE — each answer is a single decided bit (S/U), never a substring of the
+      prompt. The gold just prints the decided labels: short, constant boilerplate,
+      *no formula to copy*. That is the whole point — BoolSatFamily's gold writes a
+      brute-force solver that must copy the entire formula into the call, so its BC
+      bootstrap is unlearnable on a pre-induction backbone (the V4 copy wall). Here
+      the bootstrap teaches only the output SHAPE; the SKILL (correct labels) must be
+      found by RLVR exploration, which is exactly what we want to measure.
+
+    Difficulty grows the batch size (more decisions → denser reward), keeping indices
+    single-digit so the ``ANSWER<i>=`` substrings never collide.
+
+    Copy-don't-stash note: for compute families the gold must copy operands from the
+    prompt; for a *decision* family the label is by definition not in the prompt, so
+    emitting the decided label IS the correct supervised target, not a stashed
+    constant. Memorising labels is precluded by the by-task holdout — unseen formula
+    batches reward only formula-reading policies.
+    """
+
+    name: str = "sat_batch"
+
+    def _formula(
+        self, rng: random.Random, k: int, n_clauses: int, want_sat: bool
+    ) -> list[list[tuple[int, bool]]]:
+        """Rejection-sample a CNF whose brute-force label matches ``want_sat``."""
+        clauses: list[list[tuple[int, bool]]] = []
+        for _ in range(40):
+            assign = [rng.random() < 0.5 for _ in range(k)]
+            clauses = []
+            for _ in range(n_clauses):
+                size = rng.randint(1, min(3, k))
+                vs = rng.sample(range(k), size)
+                cl: list[tuple[int, bool]] = []
+                for i, v in enumerate(vs):
+                    # plant a satisfied literal only when we want SAT
+                    neg = (not assign[v]) if (i == 0 and want_sat) else (rng.random() < 0.5)
+                    cl.append((v, neg))
+                clauses.append(cl)
+            if not want_sat:                       # force a contradiction
+                v = rng.randrange(k)
+                clauses.append([(v, False)])
+                clauses.append([(v, True)])
+            if _cnf_sat(clauses, k) == want_sat:
+                return clauses
+        return clauses                             # rare: accept last draw
+
+    def sample(self, rng: random.Random, difficulty: int) -> Task:
+        n_form = 4 + difficulty * 2                # d0=4 .. d2=8 formulas, even → exact balance
+        k = 2 + (1 if difficulty >= 2 else 0)      # 2 vars, 3 at top difficulty
+        n_clauses = 2 + difficulty
+        wants = [True, False] * (n_form // 2)      # exactly half SAT → constant guess caps at 0.5
+        rng.shuffle(wants)
+        lines: list[str] = []
+        checks: list[dict] = []
+        for i, want in enumerate(wants, 1):
+            clauses = self._formula(rng, k, n_clauses, want)
+            label = "S" if _cnf_sat(clauses, k) else "U"   # brute force = source of truth
+            formula = " and ".join(
+                "(" + " or ".join(("not " if neg else "") + f"x{v}" for v, neg in cl) + ")"
+                for cl in clauses
+            )
+            lines.append(f"{i}: {formula}")
+            checks.append({"type": "stdout_contains", "substr": f"ANSWER{i}={label}"})
+        # no called_tool check: graded must equal pure decision accuracy, and stdout is
+        # unreachable without a py_run call anyway, so the tool incentive is intact.
+        body = "\n".join(lines)
+        return Task(
+            id=f"{self.name}-{_stable_id(body)}",
+            prompt=(
+                "For each numbered boolean formula decide if it is satisfiable. Use "
+                "python to print one line per formula, ANSWER<i>=S (satisfiable) or "
+                "ANSWER<i>=U (unsatisfiable):\n" + body
+            ),
+            checks=checks,
+            clean=True,
+        )
+
+    def oracle(self, task: Task) -> list[ToolCall]:
+        # gold = print the decided labels (carried in the stdout_contains checks). Copy-free:
+        # no formula text reproduced — only the short decided bits + constant print boilerplate.
+        labels = [c["substr"] for c in task.checks if c.get("type") == "stdout_contains"]
+        code = "\n".join(f"print('{lab}')" for lab in labels)
+        return [ToolCall("py_run", {"code": code})]
+
+
+@dataclass
 class PipelineFamily(GoalFamily):
     """A genuinely multi-step task: read an input file, transform it, write the result.
 
@@ -450,6 +544,7 @@ ALL_FAMILIES: list[GoalFamily] = [
     ArithFamily(),
     SequenceFamily(),
     BoolSatFamily(),
+    SatBatchFamily(),
     PipelineFamily(),
     EchoFamily(),
 ]

@@ -1,0 +1,22 @@
+{
+  "models": {
+    "grot-v1": {
+      "label": "v1 · GROT-80M (baseline · 0.78 epoch)",
+      "description": "Pre-train INCOMPLET: 0.78 epoch (1100 / 1408 steps, ~1.15B sur 1.477B tokens). Tire les outils, copie les litteraux du format ANSWER= mais DERIVE hors-distribution (nombre nu, KEY=, REF-).",
+      "size": 334235128,
+      "uploaded_at": 1781872111.343168
+    },
+    "grot-v2": {
+      "label": "v2 · GROT-80M WAAAGH 1.1 (1 epoch · copie generalisee)",
+      "description": "Pre-train COMPLET: 1 epoch (1.477B tokens). Backbone WAAAGH 1.1 + SFT data diversifiee + anchor. Copie GENERALISEE: litteraux arbitraires (471029, KEY=..., REF-...) la ou v1 echoue.",
+      "size": 334235128,
+      "uploaded_at": 1781872111.867102
+    },
+    "grot-v3": {
+      "label": "v3 · GROT-80M Orkun self-play (2.19h · decide, ne copie plus)",
+      "description": "Au-dela du pre-train: 2.19h de self-play Orkun (RLVR causal-curiosity) sur axe COPY-FREE (SAT/UNSAT, reponse = bit decide jamais sous-chaine du prompt). Best held-out 0.938 (d0=1.000 d1=1.000 d2=0.812), monotone-croissant, early-stop pile au pic (le final EST le meilleur, sans sur-cuisson). Le modele DECIDE au-dessus du hasard (plancher 0.500), il ne copie plus.",
+      "size": 334234224,
+      "uploaded_at": 1782135145.0
+    }
+  }
+}

@@ -186,7 +186,7 @@
     <svg class="mascot" viewBox="0 0 240 240"><use href="#grot"/></svg>
     <h1>WAAAGH<span class="tusk">·</span>GROT-80M</h1>
     <div class="tag">tool-callin' orko-engine — 80M params, trained from scratch</div>
-    <div class="tag" id="chesslink" style="margin-top:8px;display:none">♟ <a href="/chess">play grot at chess →</a></div>
+    <div class="tag" style="margin-top:8px">🧪 <a href="/sat">le labo SAT — bats-tu grot au raisonnement booléen ? →</a></div>
   </header>
 
   <div class="card">
@@ -279,10 +279,6 @@ async function meta(){
     `<span class="tool" data-name="${t.name}" title="${(t.desc||'').replace(/"/g,'&quot;')}"><b>${t.name}</b></span>`
   ).join('');
   MODELS = d.models || [];
-  // Chess is v3-only (the sole grot trained on chess) — reveal the link only once v3 exists.
-  if (MODELS.some(m => m.id==='v3' || m.id==='grot-v3' || /(^|-)v3$/.test(m.id||''))){
-    const cl = $('#chesslink'); if (cl) cl.style.display = '';
-  }
   MODEL = d.active_id || (MODELS[0] && MODELS[0].id) || null;
   renderModels();
   SCEN = d.scenarios || [];
